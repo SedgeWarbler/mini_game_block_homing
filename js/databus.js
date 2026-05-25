@@ -27,6 +27,14 @@ export default class DataBus {
     }
     // 传送门提示是否已显示过（运行时标志，重新开始游戏时重置）
     this.portalPromptShown = false;
+    // 玩法提示是否已显示过（运行时标志，重新开始游戏时重置）
+    this.gameplayPromptShown = false;
+
+    // ---- 复活 & 广告 运行时状态（不持久化） ----
+    // 每次「开始游戏」重置为 3，分享复活消耗 1 次
+    this.shareResurrectionLeft = 3;
+    // 当前关卡是否已用过广告复活（每关重置）
+    this.adResurrectionUsedThisLevel = false;
   }
 
   save() {
@@ -76,6 +84,9 @@ export default class DataBus {
     this.data.maxLevel = 1;
     this.data.hasProgress = false;
     this.portalPromptShown = false;
+    this.gameplayPromptShown = false;
+    this.shareResurrectionLeft = 3;
+    this.adResurrectionUsedThisLevel = false;
     this.save();
   }
 }

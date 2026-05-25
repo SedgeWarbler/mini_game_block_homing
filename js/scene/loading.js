@@ -1,5 +1,5 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, img, loadImg } from '../render';
-import { buildGameScenePaths } from './game';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
+import { buildGameSceneCorePaths, buildGameSceneDeferredPaths } from './game';
 import { HOME_IMAGE_PATHS } from './home';
 
 const ctx = canvas.getContext('2d');
@@ -23,9 +23,9 @@ const LOADING_IMAGE_PATHS = {
  * 流程：
  *   1. 启动后先并行下载加载场景自身的 3 张素材（背景 + 进度条框 + 填充），
  *      期间画面是纯色占位，避免黑屏。
- *   2. 自身素材就绪 → 渲染设计稿，并并行预下首页 + 游戏 + 弹窗的所有资源，
- *      按"已加载数 / 总数"推进进度条。
- *   3. 所有资源就绪且进度条平滑追上 100% → 触发 onComplete 回调切到首页。
+ *   2. 自身素材就绪 → 渲染设计稿，并并行预下首页 + 游戏核心资源，
+ *      按"已加载数 / 总数"推进进度条；同时后台下载延迟资源（不阻塞进度条）。
+ *   3. 核心资源就绪且进度条平滑追上 100% → 触发 onComplete 回调切到首页。
  *
  * 进度条策略：
  *   - 显示进度从 0% 自然起步，前期有一个"假进度"匀速推进营造加载感。
@@ -56,27 +56,40 @@ export default class LoadingScene {
   }
 
   /**
-   * 阶段 2：并行预下首页 + 游戏的所有资源图。
+   * 阶段 2：并行预下首页 + 游戏资源。
+   *
+   * 图片分级加载：
+   *   - P0+P1（核心）：首页素材 + 游戏棋盘/方块/洞/石块/UI，进度条追踪这部分。
+   *   - P2（延迟）：传送门帧动画、通关/失败/传送门提示/玩法提示弹窗素材，
+   *     后台火并遗忘式下载，不阻塞进度条。首次触发弹窗时 loadImg 缓存通常已命中。
+   *
    * 利用 loadImg 的全局缓存：home/game 场景之后调 loadResources 时会直接命中，
    * 几乎零等待。
    */
   _startPreloadAll() {
-    const urls = [
+    // P0+P1: 首页 + 游戏核心 — 进度条追踪
+    const coreUrls = [
       ...Object.values(HOME_IMAGE_PATHS),
-      ...Object.values(buildGameScenePaths()),
+      ...Object.values(buildGameSceneCorePaths()),
     ];
-    const total = urls.length;
+    const total = coreUrls.length;
     if (total === 0) {
       this.progress = 1;
       return;
     }
 
     let done = 0;
-    for (const src of urls) {
+    for (const src of coreUrls) {
       loadImg(src).then(() => {
         done++;
         this.progress = done / total;
       });
+    }
+
+    // P2: 延迟资源 — 火并遗忘式后台下载，不影响进度条
+    const deferredUrls = Object.values(buildGameSceneDeferredPaths());
+    for (const src of deferredUrls) {
+      loadImg(src); // 不 .then，不计入 progress
     }
   }
 
@@ -113,6 +126,7 @@ export default class LoadingScene {
   render() {
     // 不再等"自身 3 张全部就绪"：drawBackground / drawProgressBar 都自带 Canvas 兜底，
     // 哪张图先到先用，缺失部分用纯色 / 圆角矩形顶上，画面始终在动，永远不黑屏。
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     this._drawBackground();
     this._drawProgressBar();

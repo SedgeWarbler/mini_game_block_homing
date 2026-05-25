@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
 import preloader from '../game/levelPreloader';
 import Board from '../game/board';
 
@@ -21,7 +21,7 @@ function easeOutCubic(t) {
  *   - `portalPrompt*`  → 传送门提示弹窗素材
  *   - 其余             → 主棋盘/UI/方块/洞/传送门帧
  */
-export function buildGameScenePaths() {
+export function buildGameSceneCorePaths() {
   const paths = {
     bg: img('images/game/background.png'),
     returnBtn: img('images/game/return.png'),
@@ -39,6 +39,16 @@ export function buildGameScenePaths() {
     paths[`hole_${c}`] = img(`images/game/${c}/${c}_hole.png`);
     paths[`success_${c}`] = img(`images/game/${c}/${c}_success.png`);
   });
+  return paths;
+}
+
+/**
+ * 可延迟加载的图片路径 — 传送门帧动画、通关/失败/传送门提示/玩法提示弹窗素材。
+ * 这些图片不影响游戏主棋盘渲染，在需要时由 loadImg 缓存命中或即时下载。
+ * LoadingScene 会在后台火并遗忘地发起下载，但不阻塞进度条。
+ */
+export function buildGameSceneDeferredPaths() {
+  const paths = {};
   ['blue', 'purple', 'yellow'].forEach((c) => {
     paths[`portal_${c}`] = img(`images/game/portal/${c}_portal.png`);
     for (let i = 1; i <= 6; i++) {
@@ -53,8 +63,20 @@ export function buildGameScenePaths() {
   paths.failHome = img('images/fail/back_home.png');
   paths.failAdGray = img('images/fail/ad_resurrection_gray_out.png');
   paths.failShareGray = img('images/fail/share_resurrection_gray_out.png');
+  paths.failAd = img('images/fail/ad_resurrection.png');
+  paths.failShare = img('images/fail/share_resurrection.png');
   paths.portalPromptBg = img('images/game/portal/portal_prompt.png');
   paths.portalPromptSee = img('images/game/portal/see.png');
+  // 玩法提示弹窗素材
+  paths.gameplayBg = img('images/game/gameplay/background.png');
+  paths.gameplaySkip = img('images/game/gameplay/skip.png');
+  paths.gameplayNext = img('images/game/gameplay/next_page.png');
+  paths.gameplayPrev = img('images/game/gameplay/previous_page.png');
+  paths.gameplayDotOn = img('images/game/gameplay/selected_round.png');
+  paths.gameplayDotOff = img('images/game/gameplay/not_selected_round.png');
+  for (let i = 1; i <= 3; i++) {
+    paths[`gameplayPrompt_${i}`] = img(`images/game/gameplay/prompt_${i}.png`);
+  }
   return paths;
 }
 
@@ -107,10 +129,21 @@ export default class GameScene {
   portalPromptPressed = false;
   portalPromptImages = {};
 
+  // 玩法提示弹窗状态
+  showGameplayPrompt = false;
+  gameplayPromptAlpha = 0;
+  gameplayPromptScale = 0.7;
+  gameplayPromptAnimating = false;
+  gameplayPromptPage = 0;           // 当前页 0-based
+  gameplayPromptTotal = 3;          // 总页数
+  gameplayPromptPressedBtn = null;  // 'prev' | 'next' | 'skip'
+  gameplayPromptImages = {};
+
   // 弹窗布局只依赖屏幕尺寸 + 图片比例，整个场景生命周期内不变 —— 计算一次后缓存。
   _successPopupLayout = null;
   _failPopupLayout = null;
   _portalPromptLayout = null;
+  _gameplayPromptLayout = null;
 
   constructor(onWin, onHome, data) {
     this.onWin = onWin;
@@ -127,7 +160,9 @@ export default class GameScene {
   /* ---------- 资源加载 ---------- */
 
   loadResources() {
-    const allPaths = buildGameScenePaths();
+    const corePaths = buildGameSceneCorePaths();
+    const deferredPaths = buildGameSceneDeferredPaths();
+    const allPaths = { ...corePaths, ...deferredPaths };
     return Promise.all(
       Object.entries(allPaths).map(([key, src]) =>
         loadImg(src).then((image) => {
@@ -138,6 +173,8 @@ export default class GameScene {
             this.failImages[key] = image;
           } else if (key.startsWith('portalPrompt')) {
             this.portalPromptImages[key] = image;
+          } else if (key.startsWith('gameplay')) {
+            this.gameplayPromptImages[key] = image;
           } else {
             this.images[key] = image;
           }
@@ -163,6 +200,10 @@ export default class GameScene {
     this.selectedBlockId = null;
     this.blockAnim = null;
     this.board = null;
+    // 每关重置广告复活机会 & 失败弹窗布局缓存
+    const db = GameGlobal.databus;
+    if (db) db.adResurrectionUsedThisLevel = false;
+    this._failPopupLayout = null;
     this.initialData = null;
 
     if (preloader.hasCached(level)) {
@@ -195,8 +236,14 @@ export default class GameScene {
     this._winCommitted = false;
     this.calcLayout();
 
-    // 首次遇到传送门时弹出提示
+    // 首次进入第一关时弹出玩法提示
     const db = GameGlobal.databus;
+    if (db && !db.gameplayPromptShown && this.level === 1) {
+      this.triggerGameplayPrompt();
+      db.gameplayPromptShown = true;
+    }
+
+    // 首次遇到传送门时弹出提示
     if (db && !db.portalPromptShown && this.board.portals && this.board.portals.length > 0) {
       this.triggerPortalPrompt();
       db.portalPromptShown = true;
@@ -238,6 +285,10 @@ export default class GameScene {
     this.successAnimating = false;
     this.showFailPopup = false;
     this.failAnimating = false;
+    this._failPopupLayout = null;
+    // 重开关卡时重置广告复活机会
+    const db = GameGlobal.databus;
+    if (db) db.adResurrectionUsedThisLevel = false;
     this.calcLayout();
   }
 
@@ -496,6 +547,7 @@ export default class GameScene {
     this.successPressedKey = null;
     this.failPressedKey = null;
     this.portalPromptPressed = false;
+    this.gameplayPromptPressedBtn = null;
     this.selectedBlockId = null;
     this.hasDragged = false;
     this.pendingDir = null;
@@ -552,8 +604,26 @@ export default class GameScene {
         this.failPressedKey = 'restart';
       } else if (layout.homeRect && this.inRect(x, y, layout.homeRect)) {
         this.failPressedKey = 'home';
+      } else if (layout.adRect && this.inRect(x, y, layout.adRect) && layout.adEnabled) {
+        this.failPressedKey = 'ad';
+      } else if (layout.shareRect && this.inRect(x, y, layout.shareRect) && layout.shareEnabled) {
+        this.failPressedKey = 'share';
       }
       return; // 弹窗显示时屏蔽游戏触摸
+    }
+
+    // 玩法提示弹窗事件优先处理
+    if (this.showGameplayPrompt) {
+      const layout = this.calcGameplayPromptLayout();
+      if (!layout) return;
+      if (layout.skipRect && this.inRect(x, y, layout.skipRect)) {
+        this.gameplayPromptPressedBtn = 'skip';
+      } else if (layout.prevRect && this.inRect(x, y, layout.prevRect)) {
+        this.gameplayPromptPressedBtn = 'prev';
+      } else if (layout.nextRect && this.inRect(x, y, layout.nextRect)) {
+        this.gameplayPromptPressedBtn = 'next';
+      }
+      return;
     }
 
     // 传送门提示弹窗事件优先处理
@@ -591,7 +661,7 @@ export default class GameScene {
   }
 
   handleTouchMove(e) {
-    if (this.showSuccessPopup || this.showFailPopup || this.showPortalPrompt) return;
+    if (this.showSuccessPopup || this.showFailPopup || this.showPortalPrompt || this.showGameplayPrompt) return;
     if (this.selectedBlockId === null || this.hasDragged || !this.board || this.blockAnim) return;
     const touch = e.touches[0];
     const dx = touch.clientX - this.dragStartX;
@@ -649,9 +719,39 @@ export default class GameScene {
       if (!key) return;
       const layout = this.calcFailPopupLayout();
       if (!layout) return;
-      const rect = key === 'restart' ? layout.restartRect : layout.homeRect;
+      let rect = null;
+      if (key === 'restart') rect = layout.restartRect;
+      else if (key === 'home') rect = layout.homeRect;
+      else if (key === 'ad') rect = layout.adRect;
+      else if (key === 'share') rect = layout.shareRect;
       if (rect && this.inRect(x, y, rect)) {
         this.onFailClick(key);
+      }
+      return;
+    }
+
+    // 玩法提示弹窗按钮处理
+    if (this.showGameplayPrompt) {
+      const key = this.gameplayPromptPressedBtn;
+      this.gameplayPromptPressedBtn = null;
+      if (!key) return;
+      const layout = this.calcGameplayPromptLayout();
+      if (!layout) return;
+      if (key === 'skip') {
+        if (layout.skipRect && this.inRect(x, y, layout.skipRect)) {
+          this.showGameplayPrompt = false;
+          this.gameplayPromptAnimating = false;
+        }
+      } else if (key === 'prev') {
+        if (layout.prevRect && this.inRect(x, y, layout.prevRect)) {
+          // 无限轮播：到第一页再按上一页跳到最后一页
+          this.gameplayPromptPage = (this.gameplayPromptPage - 1 + this.gameplayPromptTotal) % this.gameplayPromptTotal;
+        }
+      } else if (key === 'next') {
+        if (layout.nextRect && this.inRect(x, y, layout.nextRect)) {
+          // 无限轮播：到最后一页再按下一页跳到第一页
+          this.gameplayPromptPage = (this.gameplayPromptPage + 1) % this.gameplayPromptTotal;
+        }
       }
       return;
     }
@@ -714,6 +814,63 @@ export default class GameScene {
     if (key === 'home' && this.onHome) {
       this.onHome();
     }
+    if (key === 'share') {
+      this._doShareResurrection();
+    }
+    if (key === 'ad') {
+      this._doAdResurrection();
+    }
+  }
+
+  /** 分享复活 */
+  _doShareResurrection() {
+    const db = GameGlobal.databus;
+    if (!db || db.shareResurrectionLeft <= 0) return;
+    wx.shareAppMessage({
+      title: '方块归位 — 快来挑战吧！',
+    });
+    // 微信小游戏中 shareAppMessage 无回调确认分享成功，
+    // 行业惯例：调用即视为完成（平台限制）
+    this._applyResurrection('share');
+  }
+
+  /** 广告复活 */
+  _doAdResurrection() {
+    const db = GameGlobal.databus;
+    if (!db || db.adResurrectionUsedThisLevel) return;
+    const ad = GameGlobal.rewardedVideoAd;
+    if (!ad) return;
+    ad.show().catch(() => {
+      // 广告拉取失败时尝试重新加载后展示
+      ad.load().then(() => ad.show()).catch(() => {
+        wx.showToast({ title: '广告加载失败', icon: 'none' });
+      });
+    });
+    // 监听关闭回调（一次性）
+    const onClose = (res) => {
+      ad.offClose(onClose);
+      if (res && res.isEnded) {
+        this._applyResurrection('ad');
+      } else {
+        wx.showToast({ title: '需要看完广告才能复活', icon: 'none' });
+      }
+    };
+    ad.onClose(onClose);
+  }
+
+  /** 执行复活：+3 步数，关闭弹窗 */
+  _applyResurrection(type) {
+    const db = GameGlobal.databus;
+    if (!this.board || !db) return;
+    this.board.addSteps(3);
+    this.showFailPopup = false;
+    this.failAnimating = false;
+    this._failPopupLayout = null;
+    if (type === 'share') {
+      db.shareResurrectionLeft--;
+    } else {
+      db.adResurrectionUsedThisLevel = true;
+    }
   }
 
   /* ---------- 显示通关弹窗 ---------- */
@@ -728,6 +885,8 @@ export default class GameScene {
   /* ---------- 显示失败弹窗 ---------- */
 
   triggerFailPopup() {
+    // 每次弹出失败弹窗时清掉布局缓存，让按钮状态（可用/灰化）根据最新数据重新计算
+    this._failPopupLayout = null;
     this.showFailPopup = true;
     this.failAnimating = true;
     this.failAlpha = 0;
@@ -741,6 +900,16 @@ export default class GameScene {
     this.portalPromptAnimating = true;
     this.portalPromptAlpha = 0;
     this.portalPromptScale = 0.7;
+  }
+
+  /* ---------- 显示玩法提示弹窗 ---------- */
+
+  triggerGameplayPrompt() {
+    this.showGameplayPrompt = true;
+    this.gameplayPromptAnimating = true;
+    this.gameplayPromptAlpha = 0;
+    this.gameplayPromptScale = 0.7;
+    this.gameplayPromptPage = 0;
   }
 
   /* ---------- 方块移动动画（含传送门多段效果） ---------- */
@@ -807,12 +976,48 @@ export default class GameScene {
         if (this.onHome) this.onHome();
         break;
       case 'withdraw':
-        if (this.board) this.board.undo();
+        if (this.board) {
+          if (this.board.undoLeft > 0) {
+            this.board.undo();
+          } else {
+            // 没有免费撤回了，尝试看广告获得 3 次
+            this._doAdForUndo();
+          }
+        }
         break;
       case 'restart':
         this.restartLevel();
         break;
     }
+  }
+
+  /** 看广告获取撤回次数 */
+  _doAdForUndo() {
+    if (!GameGlobal.trafficMasterEnabled) {
+      wx.showToast({ title: '暂无更多撤回次数', icon: 'none' });
+      return;
+    }
+    const ad = GameGlobal.rewardedVideoAd;
+    if (!ad) {
+      wx.showToast({ title: '广告加载失败', icon: 'none' });
+      return;
+    }
+    ad.show().catch(() => {
+      ad.load().then(() => ad.show()).catch(() => {
+        wx.showToast({ title: '广告加载失败', icon: 'none' });
+      });
+    });
+    const onClose = (res) => {
+      ad.offClose(onClose);
+      if (res && res.isEnded) {
+        if (this.board) {
+          this.board.addUndos(3);
+        }
+      } else {
+        wx.showToast({ title: '需要看完广告才能获得撤回', icon: 'none' });
+      }
+    };
+    ad.onClose(onClose);
   }
 
   /* ---------- 渲染 ---------- */
@@ -854,10 +1059,20 @@ export default class GameScene {
         this.portalPromptAnimating = false;
       }
     }
+
+    // 玩法提示弹窗入场动画
+    if (this.gameplayPromptAnimating) {
+      this.gameplayPromptAlpha = Math.min(1, this.gameplayPromptAlpha + 0.06);
+      this.gameplayPromptScale = Math.min(1, this.gameplayPromptScale + 0.04);
+      if (this.gameplayPromptAlpha >= 1 && this.gameplayPromptScale >= 1) {
+        this.gameplayPromptAnimating = false;
+      }
+    }
   }
 
   render() {
     if (!this.loaded) return;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     this.drawBackground();
 
@@ -884,6 +1099,11 @@ export default class GameScene {
     // 传送门提示弹窗覆盖在游戏画面之上
     if (this.showPortalPrompt) {
       this.drawPortalPrompt();
+    }
+
+    // 玩法提示弹窗覆盖在最上层
+    if (this.showGameplayPrompt) {
+      this.drawGameplayPrompt();
     }
   }
 
@@ -1201,20 +1421,53 @@ export default class GameScene {
 
     ctx.beginPath();
     ctx.arc(bx, by, radius, 0, Math.PI * 2);
-    // 有剩余次数时红色，用完后灰色
-    ctx.fillStyle = count > 0 ? '#E74C3C' : '#999';
-    ctx.fill();
 
-    ctx.strokeStyle = '#FFF';
-    ctx.lineWidth = Math.max(2, radius * 0.16);
-    ctx.stroke();
+    if (count > 0) {
+      // 有剩余次数：红色圆圈 + 数字
+      ctx.fillStyle = '#E74C3C';
+      ctx.fill();
+      ctx.strokeStyle = '#FFF';
+      ctx.lineWidth = Math.max(2, radius * 0.16);
+      ctx.stroke();
 
-    const fontSize = Math.floor(radius * 1.15);
-    ctx.fillStyle = '#FFF';
-    ctx.font = `bold ${fontSize}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(count), bx, by + 1);
+      const fontSize = Math.floor(radius * 1.15);
+      ctx.fillStyle = '#FFF';
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(count), bx, by + 1);
+    } else if (GameGlobal.trafficMasterEnabled) {
+      // 没有免费次数且开通了流量主：显示“看视频”播放图标（绿色圆圈 + 三角形）
+      ctx.fillStyle = '#27AE60';
+      ctx.fill();
+      ctx.strokeStyle = '#FFF';
+      ctx.lineWidth = Math.max(2, radius * 0.16);
+      ctx.stroke();
+
+      // 画播放三角形
+      const triSize = radius * 0.55;
+      ctx.fillStyle = '#FFF';
+      ctx.beginPath();
+      ctx.moveTo(bx - triSize * 0.4, by - triSize * 0.6);
+      ctx.lineTo(bx - triSize * 0.4, by + triSize * 0.6);
+      ctx.lineTo(bx + triSize * 0.65, by);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // 没有免费次数且未开通流量主：灰色
+      ctx.fillStyle = '#999';
+      ctx.fill();
+      ctx.strokeStyle = '#FFF';
+      ctx.lineWidth = Math.max(2, radius * 0.16);
+      ctx.stroke();
+
+      const fontSize = Math.floor(radius * 1.15);
+      ctx.fillStyle = '#FFF';
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('0', bx, by + 1);
+    }
 
     ctx.restore();
   }
@@ -1281,18 +1534,19 @@ export default class GameScene {
     ctx.restore();
   }
 
-  /* ---------- 失败弹窗布局计算（缓存） ---------- */
+  /* ---------- 失败弹窗布局计算（动态，每次弹出时重新计算） ---------- */
 
   calcFailPopupLayout() {
     if (this._failPopupLayout) return this._failPopupLayout;
 
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const db = GameGlobal.databus;
 
     const bgImg = this.failImages.failBg;
     if (!bgImg) return null;
 
-    // 弹窗背景按原始比例缩小显示（与通关弹窗一致的宽度）
+    // 弹窗背景按原始比例缩小显示
     const bgRatio = bgImg.width / bgImg.height;
     const popupW = w * 0.78;
     const popupH = popupW / bgRatio;
@@ -1301,29 +1555,29 @@ export default class GameScene {
     const popupY = (h - popupH) / 2 + h * 0.02;
 
     // 按钮布局 — 上下两排，每排两个按钮
-    // 第一排：重新开始 / 返回首页
-    // 第二排：看广告复活(灰) / 分享复活(灰)
     const btnW = popupW * 0.43;
     const btnGap = popupW * 0.03;
     const rowGap = popupH * 0.04;
 
     let restartRect = null;
     let homeRect = null;
-    let adGrayRect = null;
-    let shareGrayRect = null;
+    let adRect = null;
+    let shareRect = null;
+
+    // 状态判断
+    const shareEnabled = db ? db.shareResurrectionLeft > 0 : false;
+    const adEnabled = GameGlobal.trafficMasterEnabled && db && !db.adResurrectionUsedThisLevel;
 
     const restartImg = this.failImages.failRestart;
     const homeImg = this.failImages.failHome;
-    const adGrayImg = this.failImages.failAdGray;
-    const shareGrayImg = this.failImages.failShareGray;
 
     // 第一排按钮起始于弹窗高度的 72% 处
     const row1Y = popupY + popupH * 0.72;
     const totalRowW = btnW * 2 + btnGap;
     const rowStartX = (w - totalRowW) / 2;
 
-    // 统一按钮高度：以重新开始按钮的比例为基准，四个按钮大小一致
-    const refImg = restartImg || homeImg || adGrayImg || shareGrayImg;
+    // 统一按钮高度
+    const refImg = restartImg || homeImg;
     const btnH = refImg ? btnW / (refImg.width / refImg.height) : popupH * 0.08;
 
     if (restartImg) {
@@ -1344,26 +1598,22 @@ export default class GameScene {
       };
     }
 
-    // 第二排：灰色按钮
+    // 第二排：广告复活 / 分享复活
     const row2Y = row1Y + btnH + rowGap;
 
-    if (adGrayImg) {
-      adGrayRect = {
-        x: rowStartX,
-        y: row2Y,
-        w: btnW,
-        h: btnH,
-      };
-    }
+    adRect = {
+      x: rowStartX,
+      y: row2Y,
+      w: btnW,
+      h: btnH,
+    };
 
-    if (shareGrayImg) {
-      shareGrayRect = {
-        x: rowStartX + btnW + btnGap,
-        y: row2Y,
-        w: btnW,
-        h: btnH,
-      };
-    }
+    shareRect = {
+      x: rowStartX + btnW + btnGap,
+      y: row2Y,
+      w: btnW,
+      h: btnH,
+    };
 
     this._failPopupLayout = {
       popupX,
@@ -1372,8 +1622,10 @@ export default class GameScene {
       popupH,
       restartRect,
       homeRect,
-      adGrayRect,
-      shareGrayRect,
+      adRect,
+      shareRect,
+      adEnabled,
+      shareEnabled,
     };
     return this._failPopupLayout;
   }
@@ -1393,8 +1645,7 @@ export default class GameScene {
 
     // 弹窗整体缩放动画
     const cx = layout.popupX + layout.popupW / 2;
-    // 以弹窗+按钮整体中心为缩放原点
-    const bottomRow = layout.shareGrayRect || layout.adGrayRect || layout.homeRect;
+    const bottomRow = layout.shareRect || layout.adRect || layout.homeRect;
     const totalBottom = bottomRow
       ? bottomRow.y + bottomRow.h
       : layout.popupY + layout.popupH;
@@ -1419,9 +1670,46 @@ export default class GameScene {
     this.drawFailBtn('restart', layout.restartRect, this.failImages.failRestart);
     this.drawFailBtn('home', layout.homeRect, this.failImages.failHome);
 
-    // 第二排按钮：灰色（暂不可用）
-    this.drawFailBtn(null, layout.adGrayRect, this.failImages.failAdGray, true);
-    this.drawFailBtn(null, layout.shareGrayRect, this.failImages.failShareGray, true);
+    // 第二排按钮：广告复活 / 分享复活（根据状态显示可用/灰化）
+    const adImg = layout.adEnabled ? this.failImages.failAd : this.failImages.failAdGray;
+    const shareImg = layout.shareEnabled ? this.failImages.failShare : this.failImages.failShareGray;
+    this.drawFailBtn(layout.adEnabled ? 'ad' : null, layout.adRect, adImg, !layout.adEnabled);
+    this.drawFailBtn(layout.shareEnabled ? 'share' : null, layout.shareRect, shareImg, !layout.shareEnabled);
+
+    // 分享复活剩余次数徽标
+    const db = GameGlobal.databus;
+    if (layout.shareRect && db) {
+      this._drawResurrectionBadge(layout.shareRect, db.shareResurrectionLeft, 3);
+    }
+
+
+    ctx.restore();
+  }
+
+  /**
+   * 复活按钮右上角徽标：显示 "N/M" 剩余次数
+   */
+  _drawResurrectionBadge(rect, left, total) {
+    const radius = Math.max(10, Math.min(rect.w * 0.12, rect.h * 0.28));
+    const bx = rect.x + rect.w - radius * 0.4;
+    const by = rect.y + radius * 0.4;
+
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.arc(bx, by, radius, 0, Math.PI * 2);
+    ctx.fillStyle = left > 0 ? '#E74C3C' : '#999';
+    ctx.fill();
+    ctx.strokeStyle = '#FFF';
+    ctx.lineWidth = Math.max(1.5, radius * 0.14);
+    ctx.stroke();
+
+    const fontSize = Math.floor(radius * 0.92);
+    ctx.fillStyle = '#FFF';
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${left}`, bx, by + 1);
 
     ctx.restore();
   }
@@ -1538,6 +1826,268 @@ export default class GameScene {
           layout.seeRect.y,
           layout.seeRect.w,
           layout.seeRect.h
+        );
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  /* ---------- 玩法提示弹窗布局计算（缓存） ---------- */
+
+  calcGameplayPromptLayout() {
+    if (this._gameplayPromptLayout) return this._gameplayPromptLayout;
+
+    const w = SCREEN_WIDTH;
+    const h = SCREEN_HEIGHT;
+
+    const bgImg = this.gameplayPromptImages.gameplayBg;
+    if (!bgImg) return null;
+
+    // 弹窗背景按原始比例显示，宽度占屏幕 82%
+    const bgRatio = bgImg.width / bgImg.height;
+    const popupW = w * 0.82;
+    const popupH = popupW / bgRatio;
+
+    const popupX = (w - popupW) / 2;
+    const popupY = (h - popupH) / 2 - h * 0.04;
+
+    // 内容区域（背景卡片内部，去掉边框和标题区域）
+    const contentX = popupX + popupW * 0.08;
+    const contentY = popupY + popupH * 0.12;
+    const contentW = popupW * 0.84;
+    const contentH = popupH * 0.78;
+
+    // 跳过按钮 — 弹窗正下方居中
+    let skipRect = null;
+    const skipImg = this.gameplayPromptImages.gameplaySkip;
+    if (skipImg) {
+      const btnW = popupW * 0.42;
+      const btnRatio = skipImg.width / skipImg.height;
+      const btnH = btnW / btnRatio;
+      skipRect = {
+        x: (w - btnW) / 2,
+        y: popupY + popupH + popupH * 0.02,
+        w: btnW,
+        h: btnH,
+      };
+    }
+
+    // 上一页/下一页按钮 — 弹窗下方左右两侧，跳过按钮上方
+    const arrowSize = popupW * 0.10;
+    const arrowY = popupY + popupH - arrowSize - popupH * 0.04;
+    let prevRect = null;
+    let nextRect = null;
+
+    const prevImg = this.gameplayPromptImages.gameplayPrev;
+    const nextImg = this.gameplayPromptImages.gameplayNext;
+
+    if (prevImg) {
+      prevRect = {
+        x: popupX + popupW * 0.06,
+        y: arrowY,
+        w: arrowSize,
+        h: arrowSize,
+      };
+    }
+
+    if (nextImg) {
+      nextRect = {
+        x: popupX + popupW - popupW * 0.06 - arrowSize,
+        y: arrowY,
+        w: arrowSize,
+        h: arrowSize,
+      };
+    }
+
+    // 圆点指示器 — 在箭头之间居中
+    const dotSize = popupW * 0.04;
+    const dotGap = dotSize * 1.0;
+
+    this._gameplayPromptLayout = {
+      popupX,
+      popupY,
+      popupW,
+      popupH,
+      contentX,
+      contentY,
+      contentW,
+      contentH,
+      skipRect,
+      prevRect,
+      nextRect,
+      arrowY,
+      dotSize,
+      dotGap,
+    };
+    return this._gameplayPromptLayout;
+  }
+
+  /* ---------- 玩法提示弹窗渲染 ---------- */
+
+  drawGameplayPrompt() {
+    const layout = this.calcGameplayPromptLayout();
+    if (!layout) return;
+
+    ctx.save();
+    ctx.globalAlpha = this.gameplayPromptAlpha;
+
+    // 半透明灰色遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // 弹窗整体缩放动画
+    const cx = layout.popupX + layout.popupW / 2;
+    const totalBottom = layout.skipRect
+      ? layout.skipRect.y + layout.skipRect.h
+      : layout.popupY + layout.popupH;
+    const cy = (layout.popupY + totalBottom) / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(this.gameplayPromptScale, this.gameplayPromptScale);
+    ctx.translate(-cx, -cy);
+
+    // 弹窗背景图
+    const bgImg = this.gameplayPromptImages.gameplayBg;
+    if (bgImg) {
+      ctx.drawImage(
+        bgImg,
+        layout.popupX,
+        layout.popupY,
+        layout.popupW,
+        layout.popupH
+      );
+    }
+
+    // 右上角页码："1/3"
+    const pageText = `${this.gameplayPromptPage + 1}/${this.gameplayPromptTotal}`;
+    const pageFontSize = Math.floor(layout.popupW * 0.044);
+    ctx.save();
+    ctx.font = `bold ${pageFontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // 页码背景胶囊
+    const pageTextW = ctx.measureText(pageText).width + pageFontSize * 1.2;
+    const pageTextH = pageFontSize * 1.6;
+    const pageX = layout.popupX + layout.popupW - layout.popupW * 0.08 - pageTextW / 2;
+    const pageY = layout.popupY + layout.popupH * 0.10;
+    const pillX = pageX - pageTextW / 2;
+    const pillY = pageY - pageTextH / 2;
+    const pillR = pageTextH / 2;
+    ctx.fillStyle = 'rgba(255, 200, 120, 0.5)';
+    ctx.beginPath();
+    ctx.moveTo(pillX + pillR, pillY);
+    ctx.lineTo(pillX + pageTextW - pillR, pillY);
+    ctx.arcTo(pillX + pageTextW, pillY, pillX + pageTextW, pillY + pillR, pillR);
+    ctx.lineTo(pillX + pageTextW, pillY + pageTextH - pillR);
+    ctx.arcTo(pillX + pageTextW, pillY + pageTextH, pillX + pageTextW - pillR, pillY + pageTextH, pillR);
+    ctx.lineTo(pillX + pillR, pillY + pageTextH);
+    ctx.arcTo(pillX, pillY + pageTextH, pillX, pillY + pageTextH - pillR, pillR);
+    ctx.lineTo(pillX, pillY + pillR);
+    ctx.arcTo(pillX, pillY, pillX + pillR, pillY, pillR);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#A05A1A';
+    ctx.fillText(pageText, pageX, pageY + 1);
+    ctx.restore();
+
+    // 当前页的提示图片 — 在背景卡片内容区域居中显示
+    const promptImg = this.gameplayPromptImages[`gameplayPrompt_${this.gameplayPromptPage + 1}`];
+    if (promptImg) {
+      const imgRatio = promptImg.width / promptImg.height;
+      let drawW = layout.contentW;
+      let drawH = drawW / imgRatio;
+      // 如果高度超出内容区域，按高度缩放
+      if (drawH > layout.contentH) {
+        drawH = layout.contentH;
+        drawW = drawH * imgRatio;
+      }
+      const drawX = layout.contentX + (layout.contentW - drawW) / 2;
+      const drawY = layout.contentY + (layout.contentH - drawH) / 2;
+      ctx.drawImage(promptImg, drawX, drawY, drawW, drawH);
+    }
+
+    // 上一页按钮
+    if (layout.prevRect) {
+      const prevImg = this.gameplayPromptImages.gameplayPrev;
+      if (prevImg) {
+        ctx.save();
+        if (this.gameplayPromptPressedBtn === 'prev') {
+          const bx = layout.prevRect.x + layout.prevRect.w / 2;
+          const by = layout.prevRect.y + layout.prevRect.h / 2;
+          ctx.translate(bx, by);
+          ctx.scale(0.88, 0.88);
+          ctx.translate(-bx, -by);
+        }
+        ctx.drawImage(
+          prevImg,
+          layout.prevRect.x,
+          layout.prevRect.y,
+          layout.prevRect.w,
+          layout.prevRect.h
+        );
+        ctx.restore();
+      }
+    }
+
+    // 下一页按钮
+    if (layout.nextRect) {
+      const nextImg = this.gameplayPromptImages.gameplayNext;
+      if (nextImg) {
+        ctx.save();
+        if (this.gameplayPromptPressedBtn === 'next') {
+          const bx = layout.nextRect.x + layout.nextRect.w / 2;
+          const by = layout.nextRect.y + layout.nextRect.h / 2;
+          ctx.translate(bx, by);
+          ctx.scale(0.88, 0.88);
+          ctx.translate(-bx, -by);
+        }
+        ctx.drawImage(
+          nextImg,
+          layout.nextRect.x,
+          layout.nextRect.y,
+          layout.nextRect.w,
+          layout.nextRect.h
+        );
+        ctx.restore();
+      }
+    }
+
+    // 圆点指示器 — 在左右箭头之间居中
+    const dotOn = this.gameplayPromptImages.gameplayDotOn;
+    const dotOff = this.gameplayPromptImages.gameplayDotOff;
+    if (dotOn || dotOff) {
+      const totalDotsW = this.gameplayPromptTotal * layout.dotSize + (this.gameplayPromptTotal - 1) * layout.dotGap;
+      const dotsStartX = layout.popupX + (layout.popupW - totalDotsW) / 2;
+      const dotsY = layout.arrowY + (layout.prevRect ? layout.prevRect.h : layout.dotSize) / 2 - layout.dotSize / 2;
+
+      for (let i = 0; i < this.gameplayPromptTotal; i++) {
+        const dotImg = (i === this.gameplayPromptPage) ? dotOn : dotOff;
+        if (dotImg) {
+          const dx = dotsStartX + i * (layout.dotSize + layout.dotGap);
+          ctx.drawImage(dotImg, dx, dotsY, layout.dotSize, layout.dotSize);
+        }
+      }
+    }
+
+    // 跳过按钮
+    if (layout.skipRect) {
+      const skipImg = this.gameplayPromptImages.gameplaySkip;
+      if (skipImg) {
+        ctx.save();
+        if (this.gameplayPromptPressedBtn === 'skip') {
+          const bx = layout.skipRect.x + layout.skipRect.w / 2;
+          const by = layout.skipRect.y + layout.skipRect.h / 2;
+          ctx.translate(bx, by);
+          ctx.scale(0.92, 0.92);
+          ctx.translate(-bx, -by);
+        }
+        ctx.drawImage(
+          skipImg,
+          layout.skipRect.x,
+          layout.skipRect.y,
+          layout.skipRect.w,
+          layout.skipRect.h
         );
         ctx.restore();
       }

@@ -19,6 +19,19 @@ export default class Main {
   constructor() {
     GameGlobal.databus = this.databus;
 
+    // ---- 流量主 & 激励视频广告 ----
+    // 将此标志设为 true 以启用广告复活 / 广告撤回功能
+    GameGlobal.trafficMasterEnabled = false;
+    GameGlobal.rewardedVideoAd = null;
+
+    if (GameGlobal.trafficMasterEnabled && wx.createRewardedVideoAd) {
+      GameGlobal.rewardedVideoAd = wx.createRewardedVideoAd({
+        adUnitId: 'your-ad-unit-id', // 替换为实际广告位 ID
+      });
+      // 预加载广告
+      GameGlobal.rewardedVideoAd.load().catch(() => {});
+    }
+
     // 启动时就把"玩家下一步要进的那一关"排进后台预生成队列，
     // 这样从首页点击"继续游戏"通常已经是缓存命中，无需 loading。
     preloader.prefetch(this.databus.currentLevel);
@@ -75,6 +88,8 @@ export default class Main {
       this.databus.currentLevel = 1;
       if (this.databus.maxLevel < 1) this.databus.maxLevel = 1;
       this.databus.hasProgress = true;
+      this.databus.shareResurrectionLeft = 3;
+      this.databus.adResurrectionUsedThisLevel = false;
       preloader.prefetch(1);
       this.switchScene('game', { level: 1 });
     };

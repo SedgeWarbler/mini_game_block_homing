@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
 
 // 导出供 LoadingScene 统一预加载使用
 export const HOME_IMAGE_PATHS = {
@@ -213,6 +213,7 @@ export default class HomeScene {
 
   render() {
     if (!this.loaded) return; // LoadingScene 已确保资源就绪，这里几乎不会命中
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     this.drawBackground();
     const layout = this.getLayout();

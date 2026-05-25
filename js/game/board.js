@@ -25,8 +25,8 @@ export default class Board {
 
     // 撤回历史
     this.history = [];
-    // 每局最多撤回3次
-    this.undoLeft = 3;
+    // 每局赠送 1 次免费撤回
+    this.undoLeft = 1;
 
     // 抖动动画
     this.shakingBlockId = null;
@@ -39,6 +39,16 @@ export default class Board {
       if (!this.portalMap[p.color]) this.portalMap[p.color] = [];
       this.portalMap[p.color].push({ row: p.row, col: p.col });
     });
+  }
+
+  /** 复活时增加步数 */
+  addSteps(n) {
+    this.stepsLeft += n;
+  }
+
+  /** 看广告后增加撤回次数 */
+  addUndos(n) {
+    this.undoLeft += n;
   }
 
   getBlockAt(r, c) {

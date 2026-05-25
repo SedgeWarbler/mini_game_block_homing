@@ -129,7 +129,7 @@ function simMove(blockIdx, dir, blocks, grid, rows, cols, portalMap) {
  * 多次（例如同一候选连跑 2 次 solve），也共用同一份"已经在主线程占用多久"
  * 的预算，不会因为一次 solve 结束就重置预算。
  */
-const YIELD_INTERVAL_MS = 10;
+const YIELD_INTERVAL_MS = 4;
 let lastYieldTs = (typeof Date !== 'undefined') ? Date.now() : 0;
 
 function yieldToHost() {
@@ -163,8 +163,8 @@ export async function solveAsync(rows, cols, grid, blocks, maxDepth, maxStates) 
   while (head < queue.length) {
     if (visited.size >= maxStates) return { solvable: false, reason: 'state_limit' };
 
-    // 每 ~2000 次出队检查一下时间预算，避免每次出队都 Date.now() 拖性能
-    if (++yieldCheck >= 2000) {
+    // 每 ~500 次出队检查一下时间预算，避免每次出队都 Date.now() 拖性能
+    if (++yieldCheck >= 500) {
       yieldCheck = 0;
       if (Date.now() - lastYieldTs > YIELD_INTERVAL_MS) {
         await yieldToHost();

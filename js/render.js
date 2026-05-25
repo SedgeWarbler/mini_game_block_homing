@@ -2,8 +2,14 @@ GameGlobal.canvas = wx.createCanvas();
 
 const windowInfo = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
 
-canvas.width = windowInfo.screenWidth;
-canvas.height = windowInfo.screenHeight;
+/**
+ * 设备像素比（高清屏适配）。
+ * canvas 物理尺寸 = 逻辑尺寸 × DPR，绘图坐标通过 ctx.scale(DPR, DPR) 保持逻辑坐标不变。
+ */
+export const DPR = windowInfo.pixelRatio || wx.getSystemInfoSync().pixelRatio || 2;
+
+canvas.width = windowInfo.screenWidth * DPR;
+canvas.height = windowInfo.screenHeight * DPR;
 
 export const SCREEN_WIDTH = windowInfo.screenWidth;
 export const SCREEN_HEIGHT = windowInfo.screenHeight;
