@@ -14,8 +14,8 @@ import { generateLevelAsync } from './levelGenerator';
 
 // 缓存键带版本号：调整关卡生成规则（如步数缓冲、难度梯度）时把版本号 +1，
 // 让旧版本生成的缓存自动失效、自动重新生成符合新规则的关卡。
-const STORAGE_KEY = 'block_level_cache_v2';
-const LEGACY_STORAGE_KEYS = ['block_level_cache_v1'];
+const STORAGE_KEY = 'block_level_cache_v5';
+const LEGACY_STORAGE_KEYS = ['block_level_cache_v1', 'block_level_cache_v2', 'block_level_cache_v3', 'block_level_cache_v4'];
 const MAX_KEEP = 4; // 内存里最多保留最近的关卡数据；过老的从内存中清理（仍可从 storage 恢复）
 
 class LevelPreloader {

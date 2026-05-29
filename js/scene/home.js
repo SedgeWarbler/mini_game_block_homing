@@ -6,6 +6,9 @@ export const HOME_IMAGE_PATHS = {
   startBtn: img('images/home/start_game.png'),
   continueBtn: img('images/home/continue_game.png'),
   continueBtnAsh: img('images/home/continue_game_ash.png'),
+  pushBox: img('images/home/push_box.png'),
+  skin: img('images/home/skin.png'),
+  specialMode: img('images/home/special_mode.png'),
 };
 
 const ctx = canvas.getContext('2d');
@@ -18,10 +21,13 @@ export default class HomeScene {
   loaded = false;
   pressedKey = null;
 
-  constructor(onStart, onContinue) {
+  constructor(onStart, onContinue, { onPushBox, onSkin, onSpecialMode } = {}) {
     this.onStart = onStart;
     this.onContinue = onContinue;
-    // 进入 HomeScene 之前 LoadingScene 已经把这 4 张图下完并写入 loadImg 缓存，
+    this.onPushBox = onPushBox;
+    this.onSkin = onSkin;
+    this.onSpecialMode = onSpecialMode;
+    // 进入 HomeScene 之前 LoadingScene 已经把图下完并写入 loadImg 缓存，
     // 这里 loadResources 实际上是同步命中缓存、当帧 resolve。
     this.loadResources().then(() => {
       this.loaded = true;
@@ -77,7 +83,7 @@ export default class HomeScene {
         const btnH = btnW * (this.images.continueBtn.height / this.images.continueBtn.width);
         layout.continue = {
           x: (w - btnW) / 2,
-          y: h * 0.65,
+          y: h * 0.61,
           w: btnW,
           h: btnH,
         };
@@ -87,7 +93,7 @@ export default class HomeScene {
         const btnH = btnW * (this.images.startBtn.height / this.images.startBtn.width);
         layout.start = {
           x: (w - btnW) / 2,
-          y: h * 0.78,
+          y: h * 0.73,
           w: btnW,
           h: btnH,
         };
@@ -99,7 +105,7 @@ export default class HomeScene {
         const btnH = btnW * (this.images.startBtn.height / this.images.startBtn.width);
         layout.start = {
           x: (w - btnW) / 2,
-          y: h * 0.64,
+          y: h * 0.60,
           w: btnW,
           h: btnH,
         };
@@ -111,14 +117,47 @@ export default class HomeScene {
         const btnH = btnW * (ashImg.height / ashImg.width);
         layout.continue = {
           x: (w - btnW) / 2,
-          y: h * 0.76,
+          y: h * 0.72,
           w: btnW,
           h: btnH,
         };
       }
     }
 
+    // ---- 底部三个入口按钮 ----
+    this._buildEntryLayout(layout, w, h);
+
     return layout;
+  }
+
+  /**
+   * 底部三入口：特殊模式 | 推箱子 | 皮肤，水平等距排列。
+   * 使用素材自身宽高比来计算按钮尺寸。
+   */
+  _buildEntryLayout(layout, w, h) {
+    const entries = [
+      { key: 'specialMode', imgKey: 'specialMode' },
+      { key: 'pushBox',     imgKey: 'pushBox' },
+      { key: 'skin',        imgKey: 'skin' },
+    ];
+
+    const btnSize = w * 0.24;       // 每个入口图标的宽度
+    const gap = w * 0.06;          // 按钮之间的间距
+    const totalW = btnSize * 3 + gap * 2;
+    const startX = (w - totalW) / 2;
+    const btnY = h * 0.82;         // 底部位置
+
+    entries.forEach((entry, i) => {
+      const img = this.images[entry.imgKey];
+      const btnW = btnSize;
+      const btnH = img ? btnW * (img.height / img.width) : btnSize;
+      layout[entry.key] = {
+        x: startX + i * (btnSize + gap),
+        y: btnY,
+        w: btnW,
+        h: btnH,
+      };
+    });
   }
 
   handleTouchStart(e) {
@@ -162,6 +201,15 @@ export default class HomeScene {
         break;
       case 'continue':
         if (this.onContinue) this.onContinue();
+        break;
+      case 'pushBox':
+        if (this.onPushBox) this.onPushBox();
+        break;
+      case 'skin':
+        if (this.onSkin) this.onSkin();
+        break;
+      case 'specialMode':
+        if (this.onSpecialMode) this.onSpecialMode();
         break;
     }
   }
@@ -219,5 +267,9 @@ export default class HomeScene {
     const layout = this.getLayout();
     this.drawImageBtn('startBtn', 'start', layout);
     this.drawImageBtn('continueBtn', 'continue', layout);
+    // 底部三入口
+    this.drawImageBtn('specialMode', 'specialMode', layout);
+    this.drawImageBtn('pushBox', 'pushBox', layout);
+    this.drawImageBtn('skin', 'skin', layout);
   }
 }

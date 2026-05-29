@@ -1,6 +1,6 @@
 /**
  * Board - 游戏板核心逻辑
- * 管理方块移动计算、传送门、步数、撤回、胜利/失败判定
+ * 管理方块移动计算、传送门、步数、胜利/失败判定
  * 注：方块实际移动由 GameScene 动画系统驱动，Board 只负责计算目标位置
  */
 
@@ -23,11 +23,6 @@ export default class Board {
     this.totalSteps = levelData.steps;
     this.level = levelData.level;
 
-    // 撤回历史
-    this.history = [];
-    // 每局赠送 1 次免费撤回
-    this.undoLeft = 1;
-
     // 抖动动画
     this.shakingBlockId = null;
     this.shakeFrame = 0;
@@ -46,42 +41,8 @@ export default class Board {
     this.stepsLeft += n;
   }
 
-  /** 看广告后增加撤回次数 */
-  addUndos(n) {
-    this.undoLeft += n;
-  }
-
   getBlockAt(r, c) {
     return this.blocks.find((b) => !b.inHole && b.row === r && b.col === c);
-  }
-
-  saveState() {
-    const snapshot = {
-      blocks: this.blocks.map((b) => ({
-        id: b.id,
-        row: b.row,
-        col: b.col,
-        inHole: b.inHole,
-      })),
-      stepsLeft: this.stepsLeft,
-    };
-    this.history.push(snapshot);
-  }
-
-  undo() {
-    if (this.undoLeft <= 0 || this.history.length === 0) return false;
-    this.undoLeft--;
-    const state = this.history.pop();
-    state.blocks.forEach((s) => {
-      const b = this.blocks.find((x) => x.id === s.id);
-      if (b) {
-        b.row = s.row;
-        b.col = s.col;
-        b.inHole = s.inHole;
-      }
-    });
-    this.stepsLeft = state.stepsLeft;
-    return true;
   }
 
   /**
@@ -209,7 +170,6 @@ export default class Board {
    * 应用移动（动画完成后调用）
    */
   applyMove(blockId, targetR, targetC, enteredHole) {
-    this.saveState();
     const block = this.blocks.find((b) => b.id === blockId);
     if (block) {
       block.row = targetR;

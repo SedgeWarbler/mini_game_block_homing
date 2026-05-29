@@ -61,7 +61,12 @@ export default class Main {
       case 'home':
         this.currentScene = new HomeScene(
           () => this._handleStartGame(),
-          () => this._handleContinueGame()
+          () => this._handleContinueGame(),
+          {
+            onPushBox: () => this._handleEntryClick('推箱子'),
+            onSkin: () => this._handleEntryClick('皮肤'),
+            onSpecialMode: () => this._handleEntryClick('特殊模式'),
+          }
         );
         break;
 
@@ -121,6 +126,14 @@ export default class Main {
   _handleContinueGame() {
     if (!this.databus.hasProgress) return;
     this.switchScene('game', { level: this.databus.currentLevel });
+  }
+
+  /**
+   * 底部入口按钮点击（推箱子 / 皮肤 / 特殊模式）。
+   * 目前为占位提示，后续可替换为真实的场景跳转。
+   */
+  _handleEntryClick(name) {
+    wx.showToast({ title: `${name} 即将开放`, icon: 'none', duration: 1500 });
   }
 
   loop() {

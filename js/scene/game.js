@@ -28,16 +28,18 @@ export function buildGameSceneCorePaths() {
     levelBg: img('images/game/level.png'),
     stepBg: img('images/game/step.png'),
     prompt: img('images/game/prompt.png'),
-    withdraw: img('images/game/withdraw.png'),
-    restart: img('images/game/come_back.png'),
-    gridBg: img('images/game/large_grid.png'),
-    smallSquare: img('images/game/small_square.png'),
-    stone: img('images/game/stone.png'),
+    gridBg: img('images/game/grid/default.png'),
+    smallSquare: img('images/game/square/default.png'),
+    stone: img('images/game/stone/default.png'),
   };
-  ['red', 'blue', 'green', 'yellow', 'purple'].forEach((c) => {
-    paths[`block_${c}`] = img(`images/game/${c}/${c}.png`);
-    paths[`hole_${c}`] = img(`images/game/${c}/${c}_hole.png`);
-    paths[`success_${c}`] = img(`images/game/${c}/${c}_success.png`);
+  ['black', 'blue', 'green', 'pink', 'purple', 'red', 'yellow'].forEach((c) => {
+    paths[`block_${c}`] = img(`images/game/block/${c}/${c}.png`);
+    paths[`hole_${c}`] = img(`images/game/block/${c}/${c}_hole.png`);
+    paths[`success_${c}`] = img(`images/game/block/${c}/${c}_success.png`);
+  });
+  // 传送门静态图
+  ['blue', 'purple'].forEach((c) => {
+    paths[`portal_${c}`] = img(`images/game/portal/${c}_portal.png`);
   });
   return paths;
 }
@@ -49,12 +51,6 @@ export function buildGameSceneCorePaths() {
  */
 export function buildGameSceneDeferredPaths() {
   const paths = {};
-  ['blue', 'purple', 'yellow'].forEach((c) => {
-    paths[`portal_${c}`] = img(`images/game/portal/${c}_portal.png`);
-    for (let i = 1; i <= 6; i++) {
-      paths[`portal_${c}_${i}`] = img(`images/game/portal/${c}_portal_${i}.png`);
-    }
-  });
   paths.popupBg = img('images/success/background.png');
   paths.popupNext = img('images/success/next_level.png');
   paths.popupHome = img('images/success/back_home.png');
@@ -98,8 +94,6 @@ export default class GameScene {
   // 方块移动动画
   blockAnim = null;
 
-  // 传送门帧动画
-  portalAnimFrame = 0;
 
   // 通关弹窗状态
   showSuccessPopup = false;
@@ -235,6 +229,10 @@ export default class GameScene {
     this.blockAnim = null;
     this._winCommitted = false;
     this.calcLayout();
+
+    // [DEBUG] 默认打开通关弹窗，调试用 —— 调试完毕后删除此行
+    // this._commitWin();
+    // this.triggerSuccessPopup();
 
     // 首次进入第一关时弹出玩法提示
     const db = GameGlobal.databus;
@@ -418,35 +416,7 @@ export default class GameScene {
       };
     }
 
-    /* ---- 底部按钮：大圆角按钮 ---- */
 
-    const btnW = w * 0.24;
-    const btnGap = w * 0.10;
-    const totalBtnW = btnW * 2 + btnGap;
-    const btnStartX = (w - totalBtnW) / 2;
-    const btnAreaTop = h - this.bottomH;
-
-    if (this.images.withdraw) {
-      const ratio = this.images.withdraw.height / this.images.withdraw.width;
-      const bh = btnW * ratio;
-      this.btnLayout.withdraw = {
-        x: btnStartX,
-        y: btnAreaTop + (this.bottomH * 0.28 - bh) / 2,
-        w: btnW,
-        h: bh,
-      };
-    }
-
-    if (this.images.restart) {
-      const ratio = this.images.restart.height / this.images.restart.width;
-      const bh = btnW * ratio;
-      this.btnLayout.restart = {
-        x: btnStartX + btnW + btnGap,
-        y: btnAreaTop + (this.bottomH * 0.28 - bh) / 2,
-        w: btnW,
-        h: bh,
-      };
-    }
   }
 
   /* ---------- 通关弹窗布局计算（缓存） ---------- */
@@ -975,49 +945,7 @@ export default class GameScene {
       case 'return':
         if (this.onHome) this.onHome();
         break;
-      case 'withdraw':
-        if (this.board) {
-          if (this.board.undoLeft > 0) {
-            this.board.undo();
-          } else {
-            // 没有免费撤回了，尝试看广告获得 3 次
-            this._doAdForUndo();
-          }
-        }
-        break;
-      case 'restart':
-        this.restartLevel();
-        break;
     }
-  }
-
-  /** 看广告获取撤回次数 */
-  _doAdForUndo() {
-    if (!GameGlobal.trafficMasterEnabled) {
-      wx.showToast({ title: '暂无更多撤回次数', icon: 'none' });
-      return;
-    }
-    const ad = GameGlobal.rewardedVideoAd;
-    if (!ad) {
-      wx.showToast({ title: '广告加载失败', icon: 'none' });
-      return;
-    }
-    ad.show().catch(() => {
-      ad.load().then(() => ad.show()).catch(() => {
-        wx.showToast({ title: '广告加载失败', icon: 'none' });
-      });
-    });
-    const onClose = (res) => {
-      ad.offClose(onClose);
-      if (res && res.isEnded) {
-        if (this.board) {
-          this.board.addUndos(3);
-        }
-      } else {
-        wx.showToast({ title: '需要看完广告才能获得撤回', icon: 'none' });
-      }
-    };
-    ad.onClose(onClose);
   }
 
   /* ---------- 渲染 ---------- */
@@ -1026,8 +954,6 @@ export default class GameScene {
     if (this.board) this.board.updateShake();
     this.updateBlockAnim();
 
-    // 传送门帧动画计数器
-    this.portalAnimFrame++;
 
     if (this.levelLoading) {
       this.loadingAnimT += 1;
@@ -1157,7 +1083,7 @@ export default class GameScene {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const dots = '.'.repeat(1 + Math.floor(this.loadingAnimT / 18) % 3);
-    ctx.fillText(`关卡生成中${dots}`, cx, cy);
+    ctx.fillText(`随机关卡生成中${dots}`, cx, cy);
 
     ctx.fillStyle = 'rgba(122, 59, 18, 0.6)';
     ctx.font = `${Math.floor(fs * 0.65)}px sans-serif`;
@@ -1271,10 +1197,7 @@ export default class GameScene {
           const img = this.images[`hole_${cell.color}`];
           if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
         } else if (cell.type === 'portal') {
-          // 传送门动态帧：每 14 帧切换一张，循环 1~6
-          const frameIndex = (Math.floor(this.portalAnimFrame / 14) % 6) + 1;
-          const animImg = this.images[`portal_${cell.color}_${frameIndex}`];
-          const img = animImg || this.images[`portal_${cell.color}`];
+          const img = this.images[`portal_${cell.color}`];
           if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
         }
       }
@@ -1385,8 +1308,6 @@ export default class GameScene {
   drawButtons() {
     const imgMap = {
       return: 'returnBtn',
-      withdraw: 'withdraw',
-      restart: 'restart',
     };
     for (const [key, rect] of Object.entries(this.btnLayout)) {
       const img = this.images[imgMap[key]];
@@ -1402,75 +1323,9 @@ export default class GameScene {
       ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h);
       ctx.restore();
     }
-
-    // 撤回按钮上方数字徽标
-    this.drawWithdrawBadge();
   }
 
-  drawWithdrawBadge() {
-    const rect = this.btnLayout.withdraw;
-    if (!rect || !this.board) return;
 
-    const count = this.board.undoLeft;
-
-    const radius = Math.max(10, Math.min(Math.min(rect.w, rect.h) * 0.16, rect.h * 0.22));
-    const bx = rect.x + rect.w - radius * 0.55;
-    const by = rect.y + radius * 0.55;
-
-    ctx.save();
-
-    ctx.beginPath();
-    ctx.arc(bx, by, radius, 0, Math.PI * 2);
-
-    if (count > 0) {
-      // 有剩余次数：红色圆圈 + 数字
-      ctx.fillStyle = '#E74C3C';
-      ctx.fill();
-      ctx.strokeStyle = '#FFF';
-      ctx.lineWidth = Math.max(2, radius * 0.16);
-      ctx.stroke();
-
-      const fontSize = Math.floor(radius * 1.15);
-      ctx.fillStyle = '#FFF';
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(count), bx, by + 1);
-    } else if (GameGlobal.trafficMasterEnabled) {
-      // 没有免费次数且开通了流量主：显示“看视频”播放图标（绿色圆圈 + 三角形）
-      ctx.fillStyle = '#27AE60';
-      ctx.fill();
-      ctx.strokeStyle = '#FFF';
-      ctx.lineWidth = Math.max(2, radius * 0.16);
-      ctx.stroke();
-
-      // 画播放三角形
-      const triSize = radius * 0.55;
-      ctx.fillStyle = '#FFF';
-      ctx.beginPath();
-      ctx.moveTo(bx - triSize * 0.4, by - triSize * 0.6);
-      ctx.lineTo(bx - triSize * 0.4, by + triSize * 0.6);
-      ctx.lineTo(bx + triSize * 0.65, by);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // 没有免费次数且未开通流量主：灰色
-      ctx.fillStyle = '#999';
-      ctx.fill();
-      ctx.strokeStyle = '#FFF';
-      ctx.lineWidth = Math.max(2, radius * 0.16);
-      ctx.stroke();
-
-      const fontSize = Math.floor(radius * 1.15);
-      ctx.fillStyle = '#FFF';
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('0', bx, by + 1);
-    }
-
-    ctx.restore();
-  }
 
   /* ---------- 通关弹窗渲染 ---------- */
 
