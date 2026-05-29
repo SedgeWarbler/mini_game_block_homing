@@ -1,6 +1,11 @@
 import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
 import { buildGameSceneCorePaths, buildGameSceneDeferredPaths } from './game';
 import { HOME_IMAGE_PATHS } from './home';
+import { SKIN_IMAGE_PATHS } from './skin';
+import { buildBlockSkinPaths } from './blockSkin';
+import { buildStoneSkinPaths } from './stoneSkin';
+import { buildPortalSkinPaths } from './portalSkin';
+import { buildGridSkinPaths } from './gridSkin';
 
 const ctx = canvas.getContext('2d');
 
@@ -70,6 +75,7 @@ export default class LoadingScene {
     // P0+P1: 首页 + 游戏核心 — 进度条追踪
     const coreUrls = [
       ...Object.values(HOME_IMAGE_PATHS),
+      ...Object.values(SKIN_IMAGE_PATHS),
       ...Object.values(buildGameSceneCorePaths()),
     ];
     const total = coreUrls.length;
@@ -87,7 +93,13 @@ export default class LoadingScene {
     }
 
     // P2: 延迟资源 — 火并遗忘式后台下载，不影响进度条
-    const deferredUrls = Object.values(buildGameSceneDeferredPaths());
+    const deferredUrls = [
+      ...Object.values(buildGameSceneDeferredPaths()),
+      ...Object.values(buildBlockSkinPaths()),
+      ...Object.values(buildStoneSkinPaths()),
+      ...Object.values(buildPortalSkinPaths()),
+      ...Object.values(buildGridSkinPaths()),
+    ];
     for (const src of deferredUrls) {
       loadImg(src); // 不 .then，不计入 progress
     }

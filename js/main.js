@@ -2,6 +2,11 @@ import DataBus from './databus';
 import LoadingScene from './scene/loading';
 import HomeScene from './scene/home';
 import GameScene from './scene/game';
+import SkinScene from './scene/skin';
+import BlockSkinScene from './scene/blockSkin';
+import StoneSkinScene from './scene/stoneSkin';
+import PortalSkinScene from './scene/portalSkin';
+import GridSkinScene from './scene/gridSkin';
 import preloader from './game/levelPreloader';
 
 /**
@@ -45,7 +50,7 @@ export default class Main {
 
   /**
    * 切换场景
-   * @param {string} name 'loading' | 'home' | 'game'
+   * @param {string} name 'loading' | 'home' | 'game' | 'skin' | 'blockSkin' | 'stoneSkin' | 'portalSkin' | 'gridSkin'
    * @param {Object} [data] 场景间传递的数据
    */
   switchScene(name, data) {
@@ -64,7 +69,7 @@ export default class Main {
           () => this._handleContinueGame(),
           {
             onPushBox: () => this._handleEntryClick('推箱子'),
-            onSkin: () => this._handleEntryClick('皮肤'),
+            onSkin: () => this.switchScene('skin'),
             onSpecialMode: () => this._handleEntryClick('特殊模式'),
           }
         );
@@ -78,6 +83,37 @@ export default class Main {
           // 返回首页
           () => this.switchScene('home'),
           data
+        );
+        break;
+
+      case 'skin':
+        this.currentScene = new SkinScene(
+          () => this.switchScene('home'),
+          (skinType) => this.switchScene(skinType)
+        );
+        break;
+
+      case 'blockSkin':
+        this.currentScene = new BlockSkinScene(
+          () => this.switchScene('skin')
+        );
+        break;
+
+      case 'stoneSkin':
+        this.currentScene = new StoneSkinScene(
+          () => this.switchScene('skin')
+        );
+        break;
+
+      case 'portalSkin':
+        this.currentScene = new PortalSkinScene(
+          () => this.switchScene('skin')
+        );
+        break;
+
+      case 'gridSkin':
+        this.currentScene = new GridSkinScene(
+          () => this.switchScene('skin')
         );
         break;
     }

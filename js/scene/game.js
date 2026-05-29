@@ -22,24 +22,31 @@ function easeOutCubic(t) {
  *   - 其余             → 主棋盘/UI/方块/洞/传送门帧
  */
 export function buildGameSceneCorePaths() {
+  const db = GameGlobal.databus;
+  const selectedBlock = db ? db.getSelectedSkins('block') : ['black', 'blue', 'green', 'pink', 'purple', 'red', 'yellow'];
+  const selectedStone = db ? db.getSelectedSkins('stone') : ['default'];
+  const selectedPortal = db ? db.getSelectedSkins('portal') : ['blue_portal', 'purple_portal'];
+  const selectedGrid = db ? db.getSelectedSkins('grid') : ['default'];
+
   const paths = {
     bg: img('images/game/background.png'),
     returnBtn: img('images/game/return.png'),
     levelBg: img('images/game/level.png'),
     stepBg: img('images/game/step.png'),
     prompt: img('images/game/prompt.png'),
-    gridBg: img('images/game/grid/default.png'),
-    smallSquare: img('images/game/square/default.png'),
-    stone: img('images/game/stone/default.png'),
+    gridBg: img(`images/game/grid/${selectedGrid[0]}.png`),
+    smallSquare: img(`images/game/square/${selectedGrid[0]}.png`),
+    stone: img(`images/game/stone/${selectedStone[0]}.png`),
   };
-  ['black', 'blue', 'green', 'pink', 'purple', 'red', 'yellow'].forEach((c) => {
-    paths[`block_${c}`] = img(`images/game/block/${c}/${c}.png`);
-    paths[`hole_${c}`] = img(`images/game/block/${c}/${c}_hole.png`);
-    paths[`success_${c}`] = img(`images/game/block/${c}/${c}_success.png`);
+  // 按选中的皮肤加载方块三态图（block / hole / success）
+  selectedBlock.forEach((skinId) => {
+    paths[`skinBlock_${skinId}`] = img(`images/game/block/${skinId}/${skinId}.png`);
+    paths[`skinHole_${skinId}`] = img(`images/game/block/${skinId}/${skinId}_hole.png`);
+    paths[`skinSuccess_${skinId}`] = img(`images/game/block/${skinId}/${skinId}_success.png`);
   });
-  // 传送门静态图
-  ['blue', 'purple'].forEach((c) => {
-    paths[`portal_${c}`] = img(`images/game/portal/${c}_portal.png`);
+  // 按选中的皮肤加载传送门
+  selectedPortal.forEach((skinId) => {
+    paths[`skinPortal_${skinId}`] = img(`images/game/portal/${skinId}.png`);
   });
   return paths;
 }
@@ -228,11 +235,8 @@ export default class GameScene {
     this.selectedBlockId = null;
     this.blockAnim = null;
     this._winCommitted = false;
+    this._buildColorSkinMap();
     this.calcLayout();
-
-    // [DEBUG] 默认打开通关弹窗，调试用 —— 调试完毕后删除此行
-    // this._commitWin();
-    // this.triggerSuccessPopup();
 
     // 首次进入第一关时弹出玩法提示
     const db = GameGlobal.databus;
@@ -247,6 +251,50 @@ export default class GameScene {
       db.portalPromptShown = true;
     }
   }
+
+  /**
+   * 构建游戏颜色 → 皮肤 ID 映射
+   *
+   * 自定义皮肤优先分配给当前关卡实际使用的颜色，
+   * 保证玩家解锁的皮肤在游戏中一定能看到。
+   */
+  _buildColorSkinMap() {
+    const db = GameGlobal.databus;
+    const GAME_COLORS = ['black', 'blue', 'green', 'pink', 'purple', 'red', 'yellow'];
+    const selected = db ? db.getSelectedSkins('block') : GAME_COLORS;
+    const DEFAULTS = new Set(GAME_COLORS);
+
+    // 分离自定义皮肤和默认皮肤
+    const customSkins = selected.filter((s) => !DEFAULTS.has(s));
+    const defaultSkins = selected.filter((s) => DEFAULTS.has(s));
+    // 打乱默认皮肤顺序增加随机性
+    for (let i = defaultSkins.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [defaultSkins[i], defaultSkins[j]] = [defaultSkins[j], defaultSkins[i]];
+    }
+    // 自定义皮肤排在前面，优先分配给关卡实际使用的颜色
+    const skinPool = [...customSkins, ...defaultSkins];
+
+    // 关卡实际使用的颜色排在前面
+    const usedColors = this.board
+      ? [...new Set(this.board.blocks.map((b) => b.color))]
+      : [];
+    const unusedColors = GAME_COLORS.filter((c) => !usedColors.includes(c));
+    const orderedColors = [...usedColors, ...unusedColors];
+
+    this.colorSkinMap = {};
+    orderedColors.forEach((color, i) => {
+      this.colorSkinMap[color] = skinPool[i] || color;
+    });
+
+    // 传送门皮肤映射
+    const selectedPortal = db ? db.getSelectedSkins('portal') : ['blue_portal', 'purple_portal'];
+    this.portalSkinMap = {
+      blue: selectedPortal[0] || 'blue_portal',
+      purple: selectedPortal[1] || 'purple_portal',
+    };
+  }
+
 
   /**
    * 通关时把进度落地到 databus，同时把下一关排进预取。
@@ -1194,10 +1242,12 @@ export default class GameScene {
         const x = this.innerX + c * this.cellSize;
         const y = this.innerY + r * this.cellSize;
         if (cell.type === 'hole') {
-          const img = this.images[`hole_${cell.color}`];
+          const skinId = this.colorSkinMap ? this.colorSkinMap[cell.color] : cell.color;
+          const img = this.images[`skinHole_${skinId}`];
           if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
         } else if (cell.type === 'portal') {
-          const img = this.images[`portal_${cell.color}`];
+          const skinId = this.portalSkinMap ? this.portalSkinMap[cell.color] : `${cell.color}_portal`;
+          const img = this.images[`skinPortal_${skinId}`];
           if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
         }
       }
@@ -1221,7 +1271,8 @@ export default class GameScene {
       if (block.inHole) {
         const x = this.innerX + block.col * this.cellSize;
         const y = this.innerY + block.row * this.cellSize;
-        const img = this.images[`success_${block.color}`];
+        const skinId = this.colorSkinMap ? this.colorSkinMap[block.color] : block.color;
+        const img = this.images[`skinSuccess_${skinId}`];
         if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
       }
     }
@@ -1235,7 +1286,8 @@ export default class GameScene {
   }
 
   drawBlock(block) {
-    const img = this.images[`block_${block.color}`];
+    const skinId = this.colorSkinMap ? this.colorSkinMap[block.color] : block.color;
+    const img = this.images[`skinBlock_${skinId}`];
     if (!img) return;
 
     let drawR = block.row;

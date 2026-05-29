@@ -498,10 +498,9 @@ function pickColors(config, level) {
   return palette.slice(0, blockCount);
 }
 
-export const __dbgTryGenStats = {
+const __dbgTryGenStats = {
   picked_null: 0,
   hole_no_pos: 0,
-  reverse_stuck: 0,
   escape_failed: 0,
   too_few_moves: 0,
   zero_moves: 0,
@@ -1384,4 +1383,3 @@ export async function generateLevelAsync(level) {
   return generateFallbackAsync(level);
 }
 
-export { getConfig, tryGenerate, getMinStepsFloor };
