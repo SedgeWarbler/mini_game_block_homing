@@ -6,6 +6,7 @@ import { buildBlockSkinPaths } from './blockSkin';
 import { buildStoneSkinPaths } from './stoneSkin';
 import { buildPortalSkinPaths } from './portalSkin';
 import { buildGridSkinPaths } from './gridSkin';
+import { buildPushBoxPaths } from './pushBox';
 
 const ctx = canvas.getContext('2d');
 
@@ -99,6 +100,7 @@ export default class LoadingScene {
       ...Object.values(buildStoneSkinPaths()),
       ...Object.values(buildPortalSkinPaths()),
       ...Object.values(buildGridSkinPaths()),
+      ...Object.values(buildPushBoxPaths()),
     ];
     for (const src of deferredUrls) {
       loadImg(src); // 不 .then，不计入 progress

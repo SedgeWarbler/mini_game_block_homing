@@ -7,6 +7,7 @@ export const HOME_IMAGE_PATHS = {
   continueBtn: img('images/home/continue_game.png'),
   continueBtnAsh: img('images/home/continue_game_ash.png'),
   pushBox: img('images/home/push_box.png'),
+
   skin: img('images/home/skin.png'),
   specialMode: img('images/home/special_mode.png'),
 };
@@ -21,12 +22,12 @@ export default class HomeScene {
   loaded = false;
   pressedKey = null;
 
-  constructor(onStart, onContinue, { onPushBox, onSkin, onSpecialMode } = {}) {
+  constructor(onStart, onContinue, { onSkin, onSpecialMode, onPushBox } = {}) {
     this.onStart = onStart;
     this.onContinue = onContinue;
-    this.onPushBox = onPushBox;
     this.onSkin = onSkin;
     this.onSpecialMode = onSpecialMode;
+    this.onPushBox = onPushBox;
     // 进入 HomeScene 之前 LoadingScene 已经把图下完并写入 loadImg 缓存，
     // 这里 loadResources 实际上是同步命中缓存、当帧 resolve。
     this.loadResources().then(() => {
@@ -141,8 +142,8 @@ export default class HomeScene {
       { key: 'skin',        imgKey: 'skin' },
     ];
 
-    const btnSize = w * 0.24;       // 每个入口图标的宽度
-    const gap = w * 0.06;          // 按钮之间的间距
+    const btnSize = w * 0.24;
+    const gap = w * 0.06;
     const totalW = btnSize * 3 + gap * 2;
     const startX = (w - totalW) / 2;
     const btnY = h * 0.82;         // 底部位置

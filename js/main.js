@@ -2,6 +2,7 @@ import DataBus from './databus';
 import LoadingScene from './scene/loading';
 import HomeScene from './scene/home';
 import GameScene from './scene/game';
+import PushBoxScene from './scene/pushBox';
 import SkinScene from './scene/skin';
 import BlockSkinScene from './scene/blockSkin';
 import StoneSkinScene from './scene/stoneSkin';
@@ -68,9 +69,9 @@ export default class Main {
           () => this._handleStartGame(),
           () => this._handleContinueGame(),
           {
-            onPushBox: () => this._handleEntryClick('推箱子'),
             onSkin: () => this.switchScene('skin'),
             onSpecialMode: () => this._handleEntryClick('特殊模式'),
+            onPushBox: () => this.switchScene('pushBox'),
           }
         );
         break;
@@ -116,6 +117,13 @@ export default class Main {
           () => this.switchScene('skin')
         );
         break;
+
+      case 'pushBox':
+        this.currentScene = new PushBoxScene(
+          () => this.switchScene('home')
+        );
+        break;
+
     }
   }
 
@@ -164,9 +172,10 @@ export default class Main {
     this.switchScene('game', { level: this.databus.currentLevel });
   }
 
+
+
   /**
-   * 底部入口按钮点击（推箱子 / 皮肤 / 特殊模式）。
-   * 目前为占位提示，后续可替换为真实的场景跳转。
+   * 底部入口按钮点击（特殊模式等未开放功能）。
    */
   _handleEntryClick(name) {
     wx.showToast({ title: `${name} 即将开放`, icon: 'none', duration: 1500 });
