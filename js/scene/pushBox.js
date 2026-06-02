@@ -51,6 +51,7 @@ export default class PushBoxScene {
 
   // 撤回/重置
   undoRemaining = 1;      // 每关默认 1 次免费撤回
+  adUndoUsed = false;     // 每关 1 次看广告机会
   pressedAction = null;   // 'undo' | 'reset'
 
   // 通关弹窗
@@ -141,6 +142,7 @@ export default class PushBoxScene {
     this._winPopupLayout = null;
     this._levelToken = Date.now();
     this.undoRemaining = 1; // 每关重置 1 次免费撤回
+    this.adUndoUsed = false; // 每关重置广告机会
     this._currentLevelIndex = -1; // 当前关卡索引
 
     this.calcShellLayout();
@@ -160,6 +162,8 @@ export default class PushBoxScene {
       this.board.reset();
       this.showWinPopup = false;
       this.winAnimating = false;
+      this.undoRemaining = 1;  // 重置时恢复 1 次免费撤回
+      this.adUndoUsed = false; // 重置时恢复广告机会
     }
   }
 
@@ -597,57 +601,33 @@ export default class PushBoxScene {
         this.undoRemaining--;
       }
     } else {
-      // 没有次数了，需要分享或看广告获取
+      // 没有次数了，需要看广告获取
       this._showUndoRechargeModal();
     }
   }
 
   /**
-   * 弹窗：分享/广告获取撤回次数
+   * 弹窗：广告获取撤回次数
    */
   _showUndoRechargeModal() {
     const ad = GameGlobal.rewardedVideoAd;
-    if (ad) {
-      // 有广告：让用户选择分享或看广告
+    if (ad && !this.adUndoUsed) {
+      // 有广告且本局还没用过广告机会
       wx.showModal({
         title: '撤回次数不足',
-        content: '分享给好友或观看广告可获得3次撤回机会',
+        content: '观看广告可获得3次撤回机会（每局1次机会）',
         confirmText: '看广告',
-        cancelText: '去分享',
+        cancelText: '取消',
         success: (res) => {
           if (res.confirm) {
             this._watchAdForUndo();
-          } else if (res.cancel) {
-            this._shareForUndo();
           }
         },
       });
     } else {
-      // 无广告：只能分享
-      wx.showModal({
-        title: '撤回次数不足',
-        content: '分享给好友可获得3次撤回机会',
-        confirmText: '去分享',
-        cancelText: '取消',
-        success: (res) => {
-          if (res.confirm) {
-            this._shareForUndo();
-          }
-        },
-      });
+      // 无广告或本局广告机会已用
+      wx.showToast({ title: '本局撤回次数已用完', icon: 'none' });
     }
-  }
-
-  /**
-   * 分享获取撤回次数
-   */
-  _shareForUndo() {
-    wx.shareAppMessage({
-      title: '推箱子太难了！快来帮我过关～',
-    });
-    // 微信小游戏 shareAppMessage 无回调，调用即视为完成
-    this.undoRemaining += 3;
-    wx.showToast({ title: '获得3次撤回', icon: 'success' });
   }
 
   /**
@@ -656,19 +636,19 @@ export default class PushBoxScene {
   _watchAdForUndo() {
     const ad = GameGlobal.rewardedVideoAd;
     if (!ad) {
-      this._shareForUndo();
+      wx.showToast({ title: '广告不可用', icon: 'none' });
       return;
     }
     ad.show().catch(() => {
       ad.load().then(() => ad.show()).catch(() => {
-        wx.showToast({ title: '广告加载失败，已切换为分享', icon: 'none' });
-        this._shareForUndo();
+        wx.showToast({ title: '广告加载失败', icon: 'none' });
       });
     });
     const onClose = (res) => {
       ad.offClose(onClose);
       if (res && res.isEnded) {
         this.undoRemaining += 3;
+        this.adUndoUsed = true; // 标记本局广告机会已使用
         wx.showToast({ title: '获得3次撤回', icon: 'success' });
       } else {
         wx.showToast({ title: '需要看完广告才能获得撤回', icon: 'none' });
