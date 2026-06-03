@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, drawCoverImage, LAYOUT_WIDTH, LAYOUT_OFFSET_X } from '../render';
 
 // 导出供 LoadingScene 统一预加载使用
 export const HOME_IMAGE_PATHS = {
@@ -9,7 +9,6 @@ export const HOME_IMAGE_PATHS = {
   pushBox: img('images/home/push_box.png'),
 
   skin: img('images/home/skin.png'),
-  specialMode: img('images/home/special_mode.png'),
 };
 
 const ctx = canvas.getContext('2d');
@@ -22,16 +21,17 @@ export default class HomeScene {
   loaded = false;
   pressedKey = null;
 
-  constructor(onStart, onContinue, { onSkin, onSpecialMode, onPushBox } = {}) {
+  constructor(onStart, onContinue, { onSkin, onPushBox } = {}) {
     this.onStart = onStart;
     this.onContinue = onContinue;
     this.onSkin = onSkin;
-    this.onSpecialMode = onSpecialMode;
     this.onPushBox = onPushBox;
     // 进入 HomeScene 之前 LoadingScene 已经把图下完并写入 loadImg 缓存，
     // 这里 loadResources 实际上是同步命中缓存、当帧 resolve。
     this.loadResources().then(() => {
       this.loaded = true;
+      this._cachedLayout = null;
+      this._cachedHasProgress = null;
       this.bindEvents();
     });
   }
@@ -72,28 +72,40 @@ export default class HomeScene {
   }
 
   getLayout() {
+    const hp = this.hasProgress();
+    if (this._cachedLayout && this._cachedHasProgress === hp) {
+      return this._cachedLayout;
+    }
+    this._cachedHasProgress = hp;
+    const layout = this._buildLayout(hp);
+    this._cachedLayout = layout;
+    return layout;
+  }
+
+  _buildLayout(hasProgress) {
     const layout = {};
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
-    const hasProgress = this.hasProgress();
+    const lw = LAYOUT_WIDTH;       // 宽屏设备上约束布局宽度
+    const ox = LAYOUT_OFFSET_X;    // 居中偏移
 
     if (hasProgress) {
       // 已有进度：继续游戏（突出）在上，开始游戏（缩小）在下
       if (this.images.continueBtn) {
-        const btnW = w * 0.65;
+        const btnW = lw * 0.65;
         const btnH = btnW * (this.images.continueBtn.height / this.images.continueBtn.width);
         layout.continue = {
-          x: (w - btnW) / 2,
+          x: ox + (lw - btnW) / 2,
           y: h * 0.61,
           w: btnW,
           h: btnH,
         };
       }
       if (this.images.startBtn) {
-        const btnW = w * 0.50; // 缩小
+        const btnW = lw * 0.50; // 缩小
         const btnH = btnW * (this.images.startBtn.height / this.images.startBtn.width);
         layout.start = {
-          x: (w - btnW) / 2,
+          x: ox + (lw - btnW) / 2,
           y: h * 0.73,
           w: btnW,
           h: btnH,
@@ -102,10 +114,10 @@ export default class HomeScene {
     } else {
       // 首次进入：开始游戏在上，继续游戏在下（置灰）
       if (this.images.startBtn) {
-        const btnW = w * 0.65;
+        const btnW = lw * 0.65;
         const btnH = btnW * (this.images.startBtn.height / this.images.startBtn.width);
         layout.start = {
-          x: (w - btnW) / 2,
+          x: ox + (lw - btnW) / 2,
           y: h * 0.60,
           w: btnW,
           h: btnH,
@@ -114,10 +126,10 @@ export default class HomeScene {
       // 置灰用 continueBtnAsh 素材的实际比例，避免跟普通版尺寸略有差异时被拉伸
       const ashImg = this.images.continueBtnAsh || this.images.continueBtn;
       if (ashImg) {
-        const btnW = w * 0.65;
+        const btnW = lw * 0.65;
         const btnH = btnW * (ashImg.height / ashImg.width);
         layout.continue = {
-          x: (w - btnW) / 2,
+          x: ox + (lw - btnW) / 2,
           y: h * 0.72,
           w: btnW,
           h: btnH,
@@ -125,28 +137,27 @@ export default class HomeScene {
       }
     }
 
-    // ---- 底部三个入口按钮 ----
-    this._buildEntryLayout(layout, w, h);
+    // ---- 底部入口按钮 ----
+    this._buildEntryLayout(layout, lw, h, ox);
 
     return layout;
   }
 
   /**
-   * 底部三入口：特殊模式 | 推箱子 | 皮肤，水平等距排列。
+   * 底部两入口：推箱子 | 皮肤，水平等距排列。
    * 使用素材自身宽高比来计算按钮尺寸。
    */
-  _buildEntryLayout(layout, w, h) {
+  _buildEntryLayout(layout, lw, h, ox) {
     const entries = [
-      { key: 'specialMode', imgKey: 'specialMode' },
       { key: 'pushBox',     imgKey: 'pushBox' },
       { key: 'skin',        imgKey: 'skin' },
     ];
 
-    const btnSize = w * 0.24;
-    const gap = w * 0.06;
-    const totalW = btnSize * 3 + gap * 2;
-    const startX = (w - totalW) / 2;
-    const btnY = h * 0.82;         // 底部位置
+    const btnSize = lw * 0.24;
+    const gap = lw * 0.10;
+    const totalW = btnSize * entries.length + gap * (entries.length - 1);
+    const startX = ox + (lw - totalW) / 2;
+    const btnY = h * 0.82;
 
     entries.forEach((entry, i) => {
       const img = this.images[entry.imgKey];
@@ -209,30 +220,11 @@ export default class HomeScene {
       case 'skin':
         if (this.onSkin) this.onSkin();
         break;
-      case 'specialMode':
-        if (this.onSpecialMode) this.onSpecialMode();
-        break;
     }
   }
 
   drawBackground() {
-    const img = this.images.bg;
-    if (!img) return;
-    const imgRatio = img.width / img.height;
-    const screenRatio = SCREEN_WIDTH / SCREEN_HEIGHT;
-    let dw, dh, dx, dy;
-    if (imgRatio > screenRatio) {
-      dh = SCREEN_HEIGHT;
-      dw = dh * imgRatio;
-      dx = (SCREEN_WIDTH - dw) / 2;
-      dy = 0;
-    } else {
-      dw = SCREEN_WIDTH;
-      dh = dw / imgRatio;
-      dx = 0;
-      dy = (SCREEN_HEIGHT - dh) / 2;
-    }
-    ctx.drawImage(img, dx, dy, dw, dh);
+    drawCoverImage(ctx, this.images.bg, SCREEN_WIDTH, SCREEN_HEIGHT);
   }
 
   drawImageBtn(imgKey, layoutKey, layout) {
@@ -268,8 +260,7 @@ export default class HomeScene {
     const layout = this.getLayout();
     this.drawImageBtn('startBtn', 'start', layout);
     this.drawImageBtn('continueBtn', 'continue', layout);
-    // 底部三入口
-    this.drawImageBtn('specialMode', 'specialMode', layout);
+    // 底部入口
     this.drawImageBtn('pushBox', 'pushBox', layout);
     this.drawImageBtn('skin', 'skin', layout);
   }

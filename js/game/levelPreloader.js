@@ -160,8 +160,18 @@ class LevelPreloader {
   }
 }
 
+/**
+ * 手动浅拷贝关卡数据：grid 的每个 cell 是只读 plain object，row 级浅拷贝即可；
+ * blocks/holes/portals 逐元素浅拷贝。比 JSON.parse(JSON.stringify()) 快数倍。
+ */
 function cloneLevelData(data) {
-  return JSON.parse(JSON.stringify(data));
+  return {
+    ...data,
+    grid: data.grid ? data.grid.map((row) => row.slice()) : data.grid,
+    blocks: data.blocks ? data.blocks.map((b) => ({ ...b })) : data.blocks,
+    holes: data.holes ? data.holes.map((h) => ({ ...h })) : data.holes,
+    portals: data.portals ? data.portals.map((p) => ({ ...p })) : data.portals,
+  };
 }
 
 const preloader = new LevelPreloader();

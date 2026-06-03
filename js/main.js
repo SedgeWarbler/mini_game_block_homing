@@ -70,7 +70,6 @@ export default class Main {
           () => this._handleContinueGame(),
           {
             onSkin: () => this.switchScene('skin'),
-            onSpecialMode: () => this._handleEntryClick('特殊模式'),
             onPushBox: () => this.switchScene('pushBox'),
           }
         );
@@ -129,13 +128,13 @@ export default class Main {
 
   /**
    * 首页"开始游戏"按钮：
-   *   - 没进度：标记 hasProgress=true，currentLevel=1，直接进入第一关；
+   *   - 没进度：标记 hasProgress=true，currentLevel=16，直接进入第16关；
    *   - 已有进度：弹原生确认框，提示玩家会清空进度从第 1 关重新开始，确认后才执行重置。
    */
   _handleStartGame() {
     const doStart = () => {
       this.databus.currentLevel = 1;
-      if (this.databus.maxLevel < 1) this.databus.maxLevel = 1;
+      this.databus.maxLevel = 1;
       this.databus.hasProgress = true;
       this.databus.shareResurrectionLeft = 3;
       this.databus.adResurrectionUsedThisLevel = false;
@@ -170,15 +169,6 @@ export default class Main {
   _handleContinueGame() {
     if (!this.databus.hasProgress) return;
     this.switchScene('game', { level: this.databus.currentLevel });
-  }
-
-
-
-  /**
-   * 底部入口按钮点击（特殊模式等未开放功能）。
-   */
-  _handleEntryClick(name) {
-    wx.showToast({ title: `${name} 即将开放`, icon: 'none', duration: 1500 });
   }
 
   loop() {

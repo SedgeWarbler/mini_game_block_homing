@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, inRect, drawCoverImage, LAYOUT_WIDTH, LAYOUT_OFFSET_X } from '../render';
 
 // 导出供 LoadingScene 统一预加载使用
 export const SKIN_IMAGE_PATHS = {
@@ -71,6 +71,8 @@ export default class SkinScene {
   getLayout() {
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
+    const ox = LAYOUT_OFFSET_X;
     const layout = {};
 
     // 返回按钮 — 左上角（与游戏场景一致）
@@ -81,7 +83,7 @@ export default class SkinScene {
       const ratio = this.images.returnBtn.width / this.images.returnBtn.height;
       const btnW = topIconH * ratio;
       layout.returnBtn = {
-        x: w * 0.04,
+        x: ox + lw * 0.04,
         y: iconCenterY - topIconH / 2,
         w: btnW,
         h: topIconH,
@@ -90,10 +92,10 @@ export default class SkinScene {
 
     // Logo "皮肤分类" — 顶部居中，向下偏移
     if (this.images.logo) {
-      const logoW = w * 0.60;
+      const logoW = lw * 0.60;
       const logoH = logoW * (this.images.logo.height / this.images.logo.width);
       layout.logo = {
-        x: (w - logoW) / 2,
+        x: ox + (lw - logoW) / 2,
         y: h * 0.08,
         w: logoW,
         h: logoH,
@@ -108,9 +110,9 @@ export default class SkinScene {
       { key: 'grid',   imgKey: 'grid' },
     ];
 
-    const cardGap = w * 0.025;           // 卡片间距
-    const sideMargin = w * 0.025;        // 左右留白
-    const cardW = (w - sideMargin * 2 - cardGap) / 2; // 两列
+    const cardGap = lw * 0.025;           // 卡片间距
+    const sideMargin = lw * 0.025;        // 左右留白
+    const cardW = (lw - sideMargin * 2 - cardGap) / 2; // 两列
     const cardStartY = h * 0.20;         // 卡片区起始 Y（logo 下方留空）
 
     // "进入" 按钮 — 放大尺寸
@@ -131,7 +133,7 @@ export default class SkinScene {
       const row = Math.floor(i / 2);
       const imgRef = this.images[card.imgKey];
       const thisCardH = imgRef ? cardW * (imgRef.height / imgRef.width) : cardH;
-      const x = sideMargin + col * (cardW + cardGap);
+      const x = ox + sideMargin + col * (cardW + cardGap);
       const y = cardStartY + row * rowH;
       layout[card.key] = { x, y, w: cardW, h: thisCardH };
     });
@@ -155,9 +157,6 @@ export default class SkinScene {
 
   /* ---------- 触摸处理 ---------- */
 
-  inRect(x, y, rect) {
-    return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
-  }
 
   handleTouchStart(e) {
     if (!this.loaded) return;
@@ -167,7 +166,7 @@ export default class SkinScene {
     const layout = this.getLayout();
 
     // 检测返回按钮
-    if (layout.returnBtn && this.inRect(x, y, layout.returnBtn)) {
+    if (layout.returnBtn && inRect(x, y, layout.returnBtn)) {
       this.pressedKey = 'returnBtn';
       return;
     }
@@ -176,12 +175,12 @@ export default class SkinScene {
     const cardKeys = ['block', 'stone', 'portal', 'grid'];
     for (const key of cardKeys) {
       const enterKey = `enter_${key}`;
-      if (layout[enterKey] && this.inRect(x, y, layout[enterKey])) {
+      if (layout[enterKey] && inRect(x, y, layout[enterKey])) {
         this.pressedKey = enterKey;
         return;
       }
       // 整张卡片也可点击
-      if (layout[key] && this.inRect(x, y, layout[key])) {
+      if (layout[key] && inRect(x, y, layout[key])) {
         this.pressedKey = enterKey; // 统一映射到 enter_xxx
         return;
       }
@@ -200,7 +199,7 @@ export default class SkinScene {
 
     if (key === 'returnBtn') {
       const rect = layout.returnBtn;
-      if (rect && this.inRect(x, y, rect) && this.onBack) {
+      if (rect && inRect(x, y, rect) && this.onBack) {
         this.onBack();
       }
       return;
@@ -211,8 +210,8 @@ export default class SkinScene {
       const skinName = key.replace('enter_', '');
       const enterRect = layout[key];
       const cardRect = layout[skinName];
-      const inEnter = enterRect && this.inRect(x, y, enterRect);
-      const inCard = cardRect && this.inRect(x, y, cardRect);
+      const inEnter = enterRect && inRect(x, y, enterRect);
+      const inCard = cardRect && inRect(x, y, cardRect);
       if (!inEnter && !inCard) return;
 
       // 所有分类均可进入详情页
@@ -259,7 +258,6 @@ export default class SkinScene {
   drawBackground() {
     const bgImg = this.images.bg;
     if (!bgImg) {
-      // 兜底：渐变蓝天
       const grd = ctx.createLinearGradient(0, 0, 0, SCREEN_HEIGHT);
       grd.addColorStop(0, '#7EC8E3');
       grd.addColorStop(1, '#A8E6CF');
@@ -267,25 +265,11 @@ export default class SkinScene {
       ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
       return;
     }
-    const imgRatio = bgImg.width / bgImg.height;
-    const screenRatio = SCREEN_WIDTH / SCREEN_HEIGHT;
-    let dw, dh, dx, dy;
-    if (imgRatio > screenRatio) {
-      dh = SCREEN_HEIGHT;
-      dw = dh * imgRatio;
-      dx = (SCREEN_WIDTH - dw) / 2;
-      dy = 0;
-    } else {
-      dw = SCREEN_WIDTH;
-      dh = dw / imgRatio;
-      dx = 0;
-      dy = (SCREEN_HEIGHT - dh) / 2;
-    }
 
     // 模糊背景
     ctx.save();
     try { ctx.filter = `blur(${Math.round(6 * DPR)}px)`; } catch (_) { /* 低版本不支持 filter */ }
-    ctx.drawImage(bgImg, dx, dy, dw, dh);
+    drawCoverImage(ctx, bgImg, SCREEN_WIDTH, SCREEN_HEIGHT);
     ctx.restore();
 
     // 半透明遮罩增强模糊/磨砂质感

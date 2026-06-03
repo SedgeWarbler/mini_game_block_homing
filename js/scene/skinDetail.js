@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, inRect, drawCoverImage, LAYOUT_WIDTH, LAYOUT_OFFSET_X } from '../render';
 
 const ctx = canvas.getContext('2d');
 
@@ -98,7 +98,9 @@ export default class SkinDetailScene {
   _getLayoutConsts() {
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
-    const panelMarginX = w * 0.04;
+    const lw = LAYOUT_WIDTH;
+    const ox = LAYOUT_OFFSET_X;
+    const panelMarginX = lw * 0.04 + ox;
     const panelTop = h * 0.03;
     const panelW = w - panelMarginX * 2;
     const panelH = h * 0.88;
@@ -124,11 +126,11 @@ export default class SkinDetailScene {
     const topH = h * 0.085;
     const topIconH = topH * 0.58;
     const iconCenterY = topH * 0.78;
-    const sideMargin = w * 0.04;
+    const sideMargin = lw * 0.04;
     const retImg = this.images.returnBtn;
     const retBtnW = retImg ? topIconH * (retImg.width / retImg.height) : topIconH;
     const retBtnH = topIconH;
-    const retX = sideMargin;
+    const retX = ox + sideMargin;
     const retY = iconCenterY - topIconH / 2;
 
     const scrollAreaTop = panelTop + contentPadTop;
@@ -171,9 +173,6 @@ export default class SkinDetailScene {
 
   /* ---------- 触摸 ---------- */
 
-  inRect(x, y, rx, ry, rw, rh) {
-    return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
-  }
 
   handleTouchStart(e) {
     if (!this.loaded) return;
@@ -187,7 +186,7 @@ export default class SkinDetailScene {
     this._dragStartScroll = this.scrollY;
     this.scrollVelocity = 0;
 
-    if (this.inRect(x, y, c.retX, c.retY, c.retBtnW, c.retBtnH)) { this.pressedKey = 'return'; return; }
+    if (inRect(x, y, { x: c.retX, y: c.retY, w: c.retBtnW, h: c.retBtnH })) { this.pressedKey = 'return'; return; }
   }
 
   handleTouchMove(e) {
@@ -214,7 +213,7 @@ export default class SkinDetailScene {
     this.pressedKey = null;
 
     if (key === 'return') {
-      if (this.inRect(x, y, c.retX, c.retY, c.retBtnW, c.retBtnH) && this.onBack) this.onBack();
+      if (inRect(x, y, { x: c.retX, y: c.retY, w: c.retBtnW, h: c.retBtnH }) && this.onBack) this.onBack();
       return;
     }
 
@@ -222,7 +221,7 @@ export default class SkinDetailScene {
     for (let i = 0; i < skins.length; i++) {
       const skin = skins[i];
       const r = this._getItemRect(i);
-      if (this.inRect(x, y, r.cardX, r.cardY, r.cardW, r.cardH)) {
+      if (inRect(x, y, { x: r.cardX, y: r.cardY, w: r.cardW, h: r.cardH })) {
         if (r.cardY + r.cardH > c.scrollAreaTop && r.cardY < c.scrollAreaBottom) {
           this._handleSkinTap(skin.id);
         }
@@ -427,14 +426,9 @@ export default class SkinDetailScene {
   _drawBlurBg() {
     const bgImg = this.images.homeBg;
     if (!bgImg) { ctx.fillStyle = '#A6D8FF'; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); return; }
-    const imgRatio = bgImg.width / bgImg.height;
-    const screenRatio = SCREEN_WIDTH / SCREEN_HEIGHT;
-    let dw, dh, dx, dy;
-    if (imgRatio > screenRatio) { dh = SCREEN_HEIGHT; dw = dh * imgRatio; dx = (SCREEN_WIDTH - dw) / 2; dy = 0; }
-    else { dw = SCREEN_WIDTH; dh = dw / imgRatio; dx = 0; dy = (SCREEN_HEIGHT - dh) / 2; }
     ctx.save();
     try { ctx.filter = `blur(${Math.round(6 * DPR)}px)`; } catch (_) {}
-    ctx.drawImage(bgImg, dx, dy, dw, dh);
+    drawCoverImage(ctx, bgImg, SCREEN_WIDTH, SCREEN_HEIGHT);
     ctx.restore();
     ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); ctx.restore();
   }

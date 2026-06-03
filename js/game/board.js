@@ -23,6 +23,12 @@ export default class Board {
     this.totalSteps = levelData.steps;
     this.level = levelData.level;
 
+    // 保存初始状态用于重置
+    this._initialBlocks = levelData.blocks.map((b) => ({ ...b }));
+    this._initialSteps = levelData.steps;
+    // 上一步状态（用于撤回）
+    this._lastMove = null;
+
     // 抖动动画
     this.shakingBlockId = null;
     this.shakeFrame = 0;
@@ -170,6 +176,12 @@ export default class Board {
    * 应用移动（动画完成后调用）
    */
   applyMove(blockId, targetR, targetC, enteredHole) {
+    // 保存上一步状态用于撤回
+    this._lastMove = {
+      blocks: this.blocks.map((b) => ({ ...b })),
+      stepsLeft: this.stepsLeft,
+    };
+
     const block = this.blocks.find((b) => b.id === blockId);
     if (block) {
       block.row = targetR;
@@ -179,6 +191,34 @@ export default class Board {
       }
     }
     this.stepsLeft--;
+  }
+
+  /**
+   * 撤回上一步移动。
+   * @returns {boolean} 是否成功撤回
+   */
+  undo() {
+    if (!this._lastMove) return false;
+    this.blocks = this._lastMove.blocks.map((b) => ({ ...b }));
+    this.stepsLeft = this._lastMove.stepsLeft;
+    this._lastMove = null;
+    return true;
+  }
+
+  /** 是否有可撤回的步骤 */
+  canUndo() {
+    return !!this._lastMove;
+  }
+
+  /**
+   * 重置到关卡初始状态
+   */
+  reset() {
+    this.blocks = this._initialBlocks.map((b) => ({ ...b }));
+    this.stepsLeft = this._initialSteps;
+    this._lastMove = null;
+    this.shakingBlockId = null;
+    this.shakeOffset = { x: 0, y: 0 };
   }
 
   isWin() {

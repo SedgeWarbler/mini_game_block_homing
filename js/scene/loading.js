@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, LAYOUT_WIDTH } from '../render';
 import { buildGameSceneCorePaths, buildGameSceneDeferredPaths } from './game';
 import { HOME_IMAGE_PATHS } from './home';
 import { SKIN_IMAGE_PATHS } from './skin';
@@ -198,7 +198,7 @@ export default class LoadingScene {
     const fill = this.images.bar;
 
     // ===== 1. 木牌 =====
-    const plaqueW = SCREEN_WIDTH * 0.84;
+    const plaqueW = LAYOUT_WIDTH * 0.84;
     const plaqueH = grid ? plaqueW * (grid.height / grid.width) : SCREEN_WIDTH * 0.16;
     const plaqueX = (SCREEN_WIDTH - plaqueW) / 2;
     const plaqueY = SCREEN_HEIGHT * 0.85 - plaqueH / 2;

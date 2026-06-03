@@ -1,15 +1,9 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, easeOutCubic, inRect, drawCoverImage, LAYOUT_WIDTH, LAYOUT_OFFSET_X } from '../render';
 import preloader from '../game/levelPreloader';
 import Board from '../game/board';
 
 const ctx = canvas.getContext('2d');
 
-/**
- * 缓动函数：easeOutCubic，移动末尾减速
- */
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
 
 /**
  * 列举游戏场景所有需要的图片 URL（含通关/失败/传送门提示弹窗素材）。
@@ -37,6 +31,9 @@ export function buildGameSceneCorePaths() {
     gridBg: img(`images/game/grid/${selectedGrid[0]}.png`),
     smallSquare: img(`images/game/square/${selectedGrid[0]}.png`),
     stone: img(`images/game/stone/${selectedStone[0]}.png`),
+    // 撤回 & 重置按钮复用推箱子素材
+    withdrawBtn: img('images/push_box/withdraw.png'),
+    resetBtn: img('images/push_box/reset.png'),
   };
   // 按选中的皮肤加载方块三态图（block / hole / success）
   selectedBlock.forEach((skinId) => {
@@ -101,6 +98,11 @@ export default class GameScene {
   // 方块移动动画
   blockAnim = null;
 
+  // 撤回 & 重置
+  undoRemaining = 1;       // 每关 1 次免费撤回
+  pressedAction = null;    // 'undo' | 'reset'
+  undoBtnRect = null;
+  resetBtnRect = null;
 
   // 通关弹窗状态
   showSuccessPopup = false;
@@ -206,6 +208,8 @@ export default class GameScene {
     if (db) db.adResurrectionUsedThisLevel = false;
     this._failPopupLayout = null;
     this.initialData = null;
+    // 重置撤回次数
+    this.undoRemaining = 1;
 
     if (preloader.hasCached(level)) {
       const data = preloader.takeCached(level);
@@ -276,10 +280,11 @@ export default class GameScene {
     const skinPool = [...customSkins, ...defaultSkins];
 
     // 关卡实际使用的颜色排在前面
-    const usedColors = this.board
-      ? [...new Set(this.board.blocks.map((b) => b.color))]
-      : [];
-    const unusedColors = GAME_COLORS.filter((c) => !usedColors.includes(c));
+    const usedColorSet = this.board
+      ? new Set(this.board.blocks.map((b) => b.color))
+      : new Set();
+    const usedColors = [...usedColorSet];
+    const unusedColors = GAME_COLORS.filter((c) => !usedColorSet.has(c));
     const orderedColors = [...usedColors, ...unusedColors];
 
     this.colorSkinMap = {};
@@ -347,20 +352,22 @@ export default class GameScene {
   calcShellLayout() {
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
+    const ox = LAYOUT_OFFSET_X;
     this.topH = h * 0.085;
     this.promptH = h * 0.045;
     this.bottomH = h * 0.11;
 
     const topIconH = this.topH * 0.58;
     const iconCenterY = this.topH * 0.78;
-    const sideMargin = w * 0.04;
+    const sideMargin = lw * 0.04;
 
     this.btnLayout = this.btnLayout || {};
 
     if (this.images.returnBtn) {
       const bw = topIconH * (this.images.returnBtn.width / this.images.returnBtn.height);
       this.btnLayout.return = {
-        x: sideMargin,
+        x: ox + sideMargin,
         y: iconCenterY - topIconH / 2,
         w: bw,
         h: topIconH,
@@ -368,11 +375,11 @@ export default class GameScene {
     }
 
     if (this.images.levelBg) {
-      const lw = topIconH * (this.images.levelBg.width / this.images.levelBg.height);
+      const levelW = topIconH * (this.images.levelBg.width / this.images.levelBg.height);
       this.levelRect = {
-        x: (w - lw) / 2,
+        x: ox + (lw - levelW) / 2,
         y: iconCenterY - topIconH / 2,
-        w: lw,
+        w: levelW,
         h: topIconH,
       };
     }
@@ -381,17 +388,21 @@ export default class GameScene {
   calcLayout() {
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
+    const ox = LAYOUT_OFFSET_X;
 
     this.topH = h * 0.085;
     this.promptH = h * 0.045;
     this.bottomH = h * 0.11;
 
     const availH = h - this.topH - this.promptH - this.bottomH;
-    const maxW = w * 0.92;
+    const maxW = lw * 0.92;
     const maxH = availH * 0.96;
 
     // 根据行列计算单元格大小
-    const cellByW = Math.floor(maxW / this.board.cols);
+    // 注意：boardPadding = cellSize * 0.38（每侧），所以总 boardW = cellSize * (cols + 0.76)
+    // cellByW 必须把 padding 计入，否则 boardW 会溢出 maxW
+    const cellByW = Math.floor(maxW / (this.board.cols + 0.76));
     const cellByH = Math.floor(maxH / this.board.rows);
     this.cellSize = Math.min(cellByW, cellByH);
 
@@ -404,7 +415,7 @@ export default class GameScene {
     this.boardW = this.innerW + this.boardPadding * 2;
     this.boardH = this.innerH + this.boardPadding * 2;
 
-    // 居中
+    // 居中（基于全屏宽度居中，不仅仅是 LAYOUT_WIDTH）
     this.boardX = (w - this.boardW) / 2;
     this.boardY = this.topH + this.promptH + (availH - this.boardH) / 2;
     this.innerX = this.boardX + this.boardPadding;
@@ -416,13 +427,13 @@ export default class GameScene {
 
     const topIconH = this.topH * 0.58;
     const iconCenterY = this.topH * 0.78;
-    const sideMargin = w * 0.04;
+    const sideMargin = lw * 0.04;
 
     // 返回按钮（左，与其他素材统一高度）
     if (this.images.returnBtn) {
       const bw = topIconH * (this.images.returnBtn.width / this.images.returnBtn.height);
       this.btnLayout.return = {
-        x: sideMargin,
+        x: ox + sideMargin,
         y: iconCenterY - topIconH / 2,
         w: bw,
         h: topIconH,
@@ -431,11 +442,11 @@ export default class GameScene {
 
     // 关卡标题背景（居中，与步数等高保持平行）
     if (this.images.levelBg) {
-      const lw = topIconH * (this.images.levelBg.width / this.images.levelBg.height);
+      const levelW = topIconH * (this.images.levelBg.width / this.images.levelBg.height);
       this.levelRect = {
-        x: (w - lw) / 2,
+        x: ox + (lw - levelW) / 2,
         y: iconCenterY - topIconH / 2,
-        w: lw,
+        w: levelW,
         h: topIconH,
       };
     }
@@ -444,7 +455,7 @@ export default class GameScene {
     if (this.images.stepBg) {
       const sw = topIconH * (this.images.stepBg.width / this.images.stepBg.height);
       this.stepRect = {
-        x: w - sideMargin - sw,
+        x: ox + lw - sideMargin - sw,
         y: iconCenterY - topIconH / 2,
         w: sw,
         h: topIconH,
@@ -464,7 +475,30 @@ export default class GameScene {
       };
     }
 
+    /* ---- 底部操作栏：撤回 + 重置 ---- */
+    this._calcActionBtns();
+  }
 
+  /**
+   * 计算撤回 & 重置按钮布局（放在棋盘上方居中）
+   */
+  _calcActionBtns() {
+    const w = SCREEN_WIDTH;
+    const btnH = this.topH * 0.58;
+    const gap = LAYOUT_WIDTH * 0.08;
+    // 按钮放在棋盘上方，紧贴棋盘顶部
+    const actionCenterY = this.boardY - btnH * 0.8;
+
+    const withdrawImg = this.images.withdrawBtn;
+    const resetImg = this.images.resetBtn;
+    const wW = withdrawImg ? btnH * (withdrawImg.width / withdrawImg.height) : btnH * 1.8;
+    const rW = resetImg ? btnH * (resetImg.width / resetImg.height) : btnH * 1.8;
+    const totalW = wW + gap + rW;
+    let startX = (w - totalW) / 2;
+
+    this.undoBtnRect = { x: startX, y: actionCenterY - btnH / 2, w: wW, h: btnH };
+    startX += wW + gap;
+    this.resetBtnRect = { x: startX, y: actionCenterY - btnH / 2, w: rW, h: btnH };
   }
 
   /* ---------- 通关弹窗布局计算（缓存） ---------- */
@@ -474,14 +508,15 @@ export default class GameScene {
 
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
 
     const bgImg = this.successImages.popupBg;
     if (!bgImg) return null;
 
     // 弹窗背景按原始比例缩小显示
     const bgRatio = bgImg.width / bgImg.height;
-    // 弹窗宽度为屏幕宽度的 72%
-    const popupW = w * 0.72;
+    // 弹窗宽度为布局宽度的 72%
+    const popupW = lw * 0.72;
     const popupH = popupW / bgRatio;
 
     const popupX = (w - popupW) / 2;
@@ -562,6 +597,7 @@ export default class GameScene {
    */
   handleTouchCancel() {
     this.pressedBtn = null;
+    this.pressedAction = null;
     this.successPressedKey = null;
     this.failPressedKey = null;
     this.portalPromptPressed = false;
@@ -573,9 +609,6 @@ export default class GameScene {
 
   /* ---------- 触摸处理 ---------- */
 
-  inRect(x, y, rect) {
-    return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
-  }
 
   pixelToCell(x, y) {
     if (!this.board) return null;
@@ -596,7 +629,7 @@ export default class GameScene {
 
     // loading 期间只接受"返回"按钮，让玩家能随时退出
     if (this.levelLoading || !this.board) {
-      if (this.btnLayout && this.btnLayout.return && this.inRect(x, y, this.btnLayout.return)) {
+      if (this.btnLayout && this.btnLayout.return && inRect(x, y, this.btnLayout.return)) {
         this.pressedBtn = 'return';
       }
       return;
@@ -606,9 +639,9 @@ export default class GameScene {
     if (this.showSuccessPopup) {
       const layout = this.calcSuccessPopupLayout();
       if (!layout) return;
-      if (layout.nextRect && this.inRect(x, y, layout.nextRect)) {
+      if (layout.nextRect && inRect(x, y, layout.nextRect)) {
         this.successPressedKey = 'next';
-      } else if (layout.homeRect && this.inRect(x, y, layout.homeRect)) {
+      } else if (layout.homeRect && inRect(x, y, layout.homeRect)) {
         this.successPressedKey = 'home';
       }
       return; // 弹窗显示时屏蔽游戏触摸
@@ -618,13 +651,13 @@ export default class GameScene {
     if (this.showFailPopup) {
       const layout = this.calcFailPopupLayout();
       if (!layout) return;
-      if (layout.restartRect && this.inRect(x, y, layout.restartRect)) {
+      if (layout.restartRect && inRect(x, y, layout.restartRect)) {
         this.failPressedKey = 'restart';
-      } else if (layout.homeRect && this.inRect(x, y, layout.homeRect)) {
+      } else if (layout.homeRect && inRect(x, y, layout.homeRect)) {
         this.failPressedKey = 'home';
-      } else if (layout.adRect && this.inRect(x, y, layout.adRect) && layout.adEnabled) {
+      } else if (layout.adRect && inRect(x, y, layout.adRect) && layout.adEnabled) {
         this.failPressedKey = 'ad';
-      } else if (layout.shareRect && this.inRect(x, y, layout.shareRect) && layout.shareEnabled) {
+      } else if (layout.shareRect && inRect(x, y, layout.shareRect) && layout.shareEnabled) {
         this.failPressedKey = 'share';
       }
       return; // 弹窗显示时屏蔽游戏触摸
@@ -634,11 +667,11 @@ export default class GameScene {
     if (this.showGameplayPrompt) {
       const layout = this.calcGameplayPromptLayout();
       if (!layout) return;
-      if (layout.skipRect && this.inRect(x, y, layout.skipRect)) {
+      if (layout.skipRect && inRect(x, y, layout.skipRect)) {
         this.gameplayPromptPressedBtn = 'skip';
-      } else if (layout.prevRect && this.inRect(x, y, layout.prevRect)) {
+      } else if (layout.prevRect && inRect(x, y, layout.prevRect)) {
         this.gameplayPromptPressedBtn = 'prev';
-      } else if (layout.nextRect && this.inRect(x, y, layout.nextRect)) {
+      } else if (layout.nextRect && inRect(x, y, layout.nextRect)) {
         this.gameplayPromptPressedBtn = 'next';
       }
       return;
@@ -647,7 +680,7 @@ export default class GameScene {
     // 传送门提示弹窗事件优先处理
     if (this.showPortalPrompt) {
       const layout = this.calcPortalPromptLayout();
-      if (layout && layout.seeRect && this.inRect(x, y, layout.seeRect)) {
+      if (layout && layout.seeRect && inRect(x, y, layout.seeRect)) {
         this.portalPromptPressed = true;
       }
       return;
@@ -656,10 +689,20 @@ export default class GameScene {
     if (this.blockAnim) return;
 
     for (const [key, rect] of Object.entries(this.btnLayout)) {
-      if (this.inRect(x, y, rect)) {
+      if (inRect(x, y, rect)) {
         this.pressedBtn = key;
         return;
       }
+    }
+
+    // 撤回 & 重置按钮
+    if (this.undoBtnRect && inRect(x, y, this.undoBtnRect)) {
+      this.pressedAction = 'undo';
+      return;
+    }
+    if (this.resetBtnRect && inRect(x, y, this.resetBtnRect)) {
+      this.pressedAction = 'reset';
+      return;
     }
 
     const cell = this.pixelToCell(x, y);
@@ -708,7 +751,7 @@ export default class GameScene {
     if (this.levelLoading || !this.board) {
       if (this.pressedBtn === 'return') {
         const rect = this.btnLayout && this.btnLayout.return;
-        if (rect && this.inRect(x, y, rect) && this.onHome) {
+        if (rect && inRect(x, y, rect) && this.onHome) {
           this.onHome();
         }
       }
@@ -724,7 +767,7 @@ export default class GameScene {
       const layout = this.calcSuccessPopupLayout();
       if (!layout) return;
       const rect = key === 'next' ? layout.nextRect : layout.homeRect;
-      if (rect && this.inRect(x, y, rect)) {
+      if (rect && inRect(x, y, rect)) {
         this.onSuccessClick(key);
       }
       return;
@@ -742,7 +785,7 @@ export default class GameScene {
       else if (key === 'home') rect = layout.homeRect;
       else if (key === 'ad') rect = layout.adRect;
       else if (key === 'share') rect = layout.shareRect;
-      if (rect && this.inRect(x, y, rect)) {
+      if (rect && inRect(x, y, rect)) {
         this.onFailClick(key);
       }
       return;
@@ -756,17 +799,17 @@ export default class GameScene {
       const layout = this.calcGameplayPromptLayout();
       if (!layout) return;
       if (key === 'skip') {
-        if (layout.skipRect && this.inRect(x, y, layout.skipRect)) {
+        if (layout.skipRect && inRect(x, y, layout.skipRect)) {
           this.showGameplayPrompt = false;
           this.gameplayPromptAnimating = false;
         }
       } else if (key === 'prev') {
-        if (layout.prevRect && this.inRect(x, y, layout.prevRect)) {
+        if (layout.prevRect && inRect(x, y, layout.prevRect)) {
           // 无限轮播：到第一页再按上一页跳到最后一页
           this.gameplayPromptPage = (this.gameplayPromptPage - 1 + this.gameplayPromptTotal) % this.gameplayPromptTotal;
         }
       } else if (key === 'next') {
-        if (layout.nextRect && this.inRect(x, y, layout.nextRect)) {
+        if (layout.nextRect && inRect(x, y, layout.nextRect)) {
           // 无限轮播：到最后一页再按下一页跳到第一页
           this.gameplayPromptPage = (this.gameplayPromptPage + 1) % this.gameplayPromptTotal;
         }
@@ -779,7 +822,7 @@ export default class GameScene {
       if (this.portalPromptPressed) {
         this.portalPromptPressed = false;
         const layout = this.calcPortalPromptLayout();
-        if (layout && layout.seeRect && this.inRect(x, y, layout.seeRect)) {
+        if (layout && layout.seeRect && inRect(x, y, layout.seeRect)) {
           this.showPortalPrompt = false;
           this.portalPromptAnimating = false;
         }
@@ -791,10 +834,22 @@ export default class GameScene {
 
     if (this.pressedBtn) {
       const rect = this.btnLayout[this.pressedBtn];
-      if (rect && this.inRect(x, y, rect)) {
+      if (rect && inRect(x, y, rect)) {
         this.onBtnClick(this.pressedBtn);
       }
       this.pressedBtn = null;
+      return;
+    }
+
+    // 撤回 & 重置按钮释放
+    if (this.pressedAction) {
+      const action = this.pressedAction;
+      this.pressedAction = null;
+      if (action === 'undo' && this.undoBtnRect && inRect(x, y, this.undoBtnRect)) {
+        this._handleUndo();
+      } else if (action === 'reset' && this.resetBtnRect && inRect(x, y, this.resetBtnRect)) {
+        this._handleReset();
+      }
       return;
     }
 
@@ -996,6 +1051,34 @@ export default class GameScene {
     }
   }
 
+  /* ---------- 撤回 & 重置 ---------- */
+
+  _handleUndo() {
+    if (!this.board || this.blockAnim) return;
+    if (!this.board.canUndo()) {
+      wx.showToast({ title: '没有可撤回的步骤', icon: 'none' });
+      return;
+    }
+    if (this.undoRemaining > 0) {
+      if (this.board.undo()) {
+        this.undoRemaining--;
+        this.selectedBlockId = null;
+      }
+    } else {
+      wx.showToast({ title: '本关撤回次数已用完', icon: 'none' });
+    }
+  }
+
+  _handleReset() {
+    if (!this.board || this.blockAnim) return;
+    this.board.reset();
+    this.selectedBlockId = null;
+    this.blockAnim = null;
+    this.undoRemaining = 1;
+    this.showFailPopup = false;
+    this.showSuccessPopup = false;
+  }
+
   /* ---------- 渲染 ---------- */
 
   update() {
@@ -1059,6 +1142,7 @@ export default class GameScene {
     this.drawPrompt();
     this.drawBoard();
     this.drawButtons();
+    this.drawActionBar();
 
     // 通关弹窗覆盖在游戏画面之上
     if (this.showSuccessPopup) {
@@ -1140,23 +1224,7 @@ export default class GameScene {
   }
 
   drawBackground() {
-    const img = this.images.bg;
-    if (!img) return;
-    const ratio = img.width / img.height;
-    const sr = SCREEN_WIDTH / SCREEN_HEIGHT;
-    let dw, dh, dx, dy;
-    if (ratio > sr) {
-      dh = SCREEN_HEIGHT;
-      dw = dh * ratio;
-      dx = (SCREEN_WIDTH - dw) / 2;
-      dy = 0;
-    } else {
-      dw = SCREEN_WIDTH;
-      dh = dw / ratio;
-      dx = 0;
-      dy = (SCREEN_HEIGHT - dh) / 2;
-    }
-    ctx.drawImage(img, dx, dy, dw, dh);
+    drawCoverImage(ctx, this.images.bg, SCREEN_WIDTH, SCREEN_HEIGHT);
   }
 
   drawTopInfo() {
@@ -1234,7 +1302,7 @@ export default class GameScene {
       }
     }
 
-    // 3. 洞与传送门
+    // 3. 洞、传送门、石块 — 合并为单次遍历
     for (let r = 0; r < this.board.rows; r++) {
       for (let c = 0; c < this.board.cols; c++) {
         const cell = this.board.grid[r][c];
@@ -1243,25 +1311,15 @@ export default class GameScene {
         const y = this.innerY + r * this.cellSize;
         if (cell.type === 'hole') {
           const skinId = this.colorSkinMap ? this.colorSkinMap[cell.color] : cell.color;
-          const img = this.images[`skinHole_${skinId}`];
-          if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
+          const holeImg = this.images[`skinHole_${skinId}`];
+          if (holeImg) ctx.drawImage(holeImg, x, y, this.cellSize, this.cellSize);
         } else if (cell.type === 'portal') {
           const skinId = this.portalSkinMap ? this.portalSkinMap[cell.color] : `${cell.color}_portal`;
-          const img = this.images[`skinPortal_${skinId}`];
-          if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
-        }
-      }
-    }
-
-    // 4. 石块
-    for (let r = 0; r < this.board.rows; r++) {
-      for (let c = 0; c < this.board.cols; c++) {
-        const cell = this.board.grid[r][c];
-        if (cell && cell.type === 'stone') {
-          const x = this.innerX + c * this.cellSize;
-          const y = this.innerY + r * this.cellSize;
-          const img = this.images.stone;
-          if (img) ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
+          const portalImg = this.images[`skinPortal_${skinId}`];
+          if (portalImg) ctx.drawImage(portalImg, x, y, this.cellSize, this.cellSize);
+        } else if (cell.type === 'stone') {
+          const stoneImg = this.images.stone;
+          if (stoneImg) ctx.drawImage(stoneImg, x, y, this.cellSize, this.cellSize);
         }
       }
     }
@@ -1378,6 +1436,52 @@ export default class GameScene {
   }
 
 
+  drawActionBar() {
+    // 撤回按钮
+    if (this.undoBtnRect && this.images.withdrawBtn) {
+      const rect = this.undoBtnRect;
+      ctx.save();
+      if (this.pressedAction === 'undo') {
+        const cx = rect.x + rect.w / 2;
+        const cy = rect.y + rect.h / 2;
+        ctx.translate(cx, cy);
+        ctx.scale(0.9, 0.9);
+        ctx.translate(-cx, -cy);
+      }
+      ctx.drawImage(this.images.withdrawBtn, rect.x, rect.y, rect.w, rect.h);
+
+      // 撤回次数角标
+      const badgeR = rect.h * 0.22;
+      const badgeX = rect.x + rect.w - badgeR * 0.3;
+      const badgeY = rect.y + badgeR * 0.3;
+      ctx.fillStyle = this.undoRemaining > 0 ? '#FF4444' : '#999999';
+      ctx.beginPath();
+      ctx.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = `bold ${Math.floor(badgeR * 1.3)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.undoRemaining.toString(), badgeX, badgeY);
+
+      ctx.restore();
+    }
+
+    // 重置按钮
+    if (this.resetBtnRect && this.images.resetBtn) {
+      const rect = this.resetBtnRect;
+      ctx.save();
+      if (this.pressedAction === 'reset') {
+        const cx = rect.x + rect.w / 2;
+        const cy = rect.y + rect.h / 2;
+        ctx.translate(cx, cy);
+        ctx.scale(0.9, 0.9);
+        ctx.translate(-cx, -cy);
+      }
+      ctx.drawImage(this.images.resetBtn, rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
+    }
+  }
 
   /* ---------- 通关弹窗渲染 ---------- */
 
@@ -1448,6 +1552,7 @@ export default class GameScene {
 
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
     const db = GameGlobal.databus;
 
     const bgImg = this.failImages.failBg;
@@ -1455,7 +1560,7 @@ export default class GameScene {
 
     // 弹窗背景按原始比例缩小显示
     const bgRatio = bgImg.width / bgImg.height;
-    const popupW = w * 0.78;
+    const popupW = lw * 0.78;
     const popupH = popupW / bgRatio;
 
     const popupX = (w - popupW) / 2;
@@ -1643,13 +1748,14 @@ export default class GameScene {
 
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
 
     const bgImg = this.portalPromptImages.portalPromptBg;
     if (!bgImg) return null;
 
     // 弹窗背景按原始比例显示
     const bgRatio = bgImg.width / bgImg.height;
-    const popupW = w * 0.78;
+    const popupW = lw * 0.78;
     const popupH = popupW / bgRatio;
 
     const popupX = (w - popupW) / 2;
@@ -1748,13 +1854,14 @@ export default class GameScene {
 
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
 
     const bgImg = this.gameplayPromptImages.gameplayBg;
     if (!bgImg) return null;
 
-    // 弹窗背景按原始比例显示，宽度占屏幕 82%
+    // 弹窗背景按原始比例显示，宽度占布局宽度 82%
     const bgRatio = bgImg.width / bgImg.height;
-    const popupW = w * 0.82;
+    const popupW = lw * 0.82;
     const popupH = popupW / bgRatio;
 
     const popupX = (w - popupW) / 2;

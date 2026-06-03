@@ -1,15 +1,7 @@
 const STORAGE_KEY = 'block_home_data';
 
-/** 皮肤系统：默认解锁的皮肤（始终免费，不需要存储） */
-const DEFAULT_SKIN_UNLOCKED = {
-  block: ['black', 'pink', 'yellow', 'purple', 'blue', 'red', 'green'],
-  stone: ['default'],
-  portal: ['blue_portal', 'purple_portal'],
-  grid: ['default'],
-};
-
-/** 皮肤系统：首次进入时的默认选中 */
-const DEFAULT_SKIN_SELECTED = {
+/** 皮肤系统：默认解锁 & 首次进入时的默认选中（两者相同，共用一份常量） */
+const DEFAULT_SKINS = {
   block: ['black', 'pink', 'yellow', 'purple', 'blue', 'red', 'green'],
   stone: ['default'],
   portal: ['blue_portal', 'purple_portal'],
@@ -110,7 +102,7 @@ export default class DataBus {
 
   /** 检查皮肤是否已解锁（默认皮肤始终返回 true） */
   isSkinUnlocked(type, skinId) {
-    const defaults = DEFAULT_SKIN_UNLOCKED[type] || [];
+    const defaults = DEFAULT_SKINS[type] || [];
     if (defaults.includes(skinId)) return true;
     const extra = (this.data.skinData && this.data.skinData.unlocked && this.data.skinData.unlocked[type]) || [];
     return extra.includes(skinId);
@@ -128,7 +120,7 @@ export default class DataBus {
 
   /** 获取选中的皮肤列表（返回副本） */
   getSelectedSkins(type) {
-    const defaults = DEFAULT_SKIN_SELECTED[type] || [];
+    const defaults = DEFAULT_SKINS[type] || [];
     if (this.data.skinData && this.data.skinData.selected && this.data.skinData.selected[type]) {
       return [...this.data.skinData.selected[type]];
     }

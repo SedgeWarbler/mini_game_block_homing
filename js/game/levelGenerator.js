@@ -19,6 +19,7 @@
  */
 
 import { solve, solveAsync, solveWithPath, solveWithPathAsync, tracePortalsForMoves, maybeYield, simulateMove, getPortalPairMap } from './solver.js';
+import { getPresetLevel, hasPresetLevel } from './presetLevels.js';
 
 const COLORS = ['black', 'blue', 'green', 'pink', 'purple', 'red', 'yellow'];
 const PORTAL_COLORS = ['blue', 'purple'];
@@ -498,17 +499,6 @@ function pickColors(config, level) {
   return palette.slice(0, blockCount);
 }
 
-const __dbgTryGenStats = {
-  picked_null: 0,
-  hole_no_pos: 0,
-  escape_failed: 0,
-  too_few_moves: 0,
-  zero_moves: 0,
-  invalid_placement: 0,
-  min_dist_fail: 0,
-  total_dist_fail: 0,
-  ok: 0,
-};
 
 /**
  * 尝试生成一个关卡候选
@@ -517,7 +507,7 @@ function tryGenerate(config, level) {
   const { rows, cols, blockCount, stoneCount, portalPairs, reverseMoves } = config;
 
   const blockColors = pickColors(config, level);
-  if (!blockColors) { __dbgTryGenStats.picked_null++; return null; }
+  if (!blockColors) return null;
 
   const grid = Array.from({ length: rows }, () => Array(cols).fill(null));
 
@@ -525,7 +515,7 @@ function tryGenerate(config, level) {
   const holes = [];
   for (const color of blockColors) {
     const pos = randomEmptyPos(rows, cols, grid, null);
-    if (!pos) { __dbgTryGenStats.hole_no_pos++; return null; }
+    if (!pos) return null;
     grid[pos.r][pos.c] = { type: 'hole', color };
     holes.push({ color, row: pos.r, col: pos.c });
   }
@@ -677,7 +667,7 @@ function tryGenerate(config, level) {
         break;
       }
     }
-    if (!escaped) { __dbgTryGenStats.escape_failed++; return null; }
+    if (!escaped) return null;
   }
 
   // SOFT 检查：要求至少 N% 的方块达到最低反向移动次数
@@ -686,12 +676,11 @@ function tryGenerate(config, level) {
     const requiredRatio = level >= 20 ? 0.75 : 0.5;
     const okCount = blocks.filter((b) => moveCounts.get(b.id) >= minMovesPerBlock).length;
     if (okCount < Math.ceil(blocks.length * requiredRatio)) {
-      __dbgTryGenStats.too_few_moves++;
       return null;
     }
   }
 
-  if (actualMoves < 1) { __dbgTryGenStats.zero_moves++; return null; }
+  if (actualMoves < 1) return null;
 
   // 若方块整体仍太靠近洞口，追加若干次「远离洞」的反向移动
   const minDistTarget = level <= 15 ? 2 : level <= 19 ? 3 : level <= 34 ? 4 : level <= 59 ? 5 : 6;
@@ -749,17 +738,17 @@ function tryGenerate(config, level) {
     reverseLog: reverseLog.slice(),
   };
 
-  if (!validatePlacement(candidate)) { __dbgTryGenStats.invalid_placement++; return null; }
+  if (!validatePlacement(candidate)) return null;
 
   // 距离预筛：方块紧贴洞口的关卡直接舍弃
   const { minDist, totalDist } = evalBlockHoleDistances(candidate);
   const minDistFloor = getMinHoleDistance(level);
   const totalDistFloor = getTotalDistanceFloor(level, blockCount);
   const spreadFloor = minDistFloor;
-  if (minDist < spreadFloor) { __dbgTryGenStats.min_dist_fail++; return null; }
-  if (totalDist < totalDistFloor) { __dbgTryGenStats.total_dist_fail++; return null; }
+  if (minDist < spreadFloor) return null;
+  if (totalDist < totalDistFloor) return null;
 
-  __dbgTryGenStats.ok++;
+
   return candidate;
 }
 
@@ -1180,8 +1169,17 @@ function computeMaxStates(config) {
 
 /**
  * 生成关卡（对外接口，同步版）
+ *
+ * 关卡 16-100 使用预设数据（零计算、零等待）；
+ * 关卡 1-15 及 100+ 使用动态生成。
  */
 export function generateLevel(level) {
+  // 预设关卡：直接返回，零计算
+  if (hasPresetLevel(level)) {
+    const preset = getPresetLevel(level);
+    if (preset) return preset;
+  }
+
   const baseConfig = getConfig(level);
   const minStepsFloor = getMinStepsFloor(level, baseConfig.blockCount);
   const maxAttempts = 320;
@@ -1283,9 +1281,18 @@ export function generateLevel(level) {
  * 异步版关卡生成：与 generateLevel 同构，但 solve 走 async 版本，
  * 由 BFS 周期性让出主线程，关卡预加载器调度它在后台运行。
  *
+ * 关卡 16-100 使用预设数据（零计算、零等待）；
+ * 关卡 1-15 及 100+ 使用动态生成。
+ *
  * 调用方应当 await 这个函数；返回完整 levelData。
  */
 export async function generateLevelAsync(level) {
+  // 预设关卡：直接返回，零计算
+  if (hasPresetLevel(level)) {
+    const preset = getPresetLevel(level);
+    if (preset) return preset;
+  }
+
   const baseConfig = getConfig(level);
   const minStepsFloor = getMinStepsFloor(level, baseConfig.blockCount);
   const maxAttempts = 320;

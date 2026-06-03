@@ -277,7 +277,4 @@ export default class SokobanBoard {
     });
   }
 
-  _easeOutCubic(t) {
-    return 1 - Math.pow(1 - t, 3);
-  }
 }

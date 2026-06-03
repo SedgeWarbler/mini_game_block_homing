@@ -15,6 +15,26 @@ export const SCREEN_WIDTH = windowInfo.screenWidth;
 export const SCREEN_HEIGHT = windowInfo.screenHeight;
 
 /**
+ * 屏幕宽高比 & 宽屏适配。
+ *
+ * 手机竖屏比例约 0.45~0.52，较宽手机约 0.54~0.56，
+ * iPad 约 0.75，Windows 微信窗口约 0.56~0.6，Windows 横屏 ≥1.0。
+ *
+ * IS_WIDE_SCREEN 为 true 时，用 LAYOUT_WIDTH 约束 UI 布局宽度，
+ * 让内容区域保持竖屏手机比例，居中显示在屏幕中央。
+ * 背景图和 clearRect 仍然使用 SCREEN_WIDTH / SCREEN_HEIGHT 铺满全屏。
+ */
+export const ASPECT_RATIO = SCREEN_WIDTH / SCREEN_HEIGHT;
+export const IS_WIDE_SCREEN = ASPECT_RATIO > 0.57;
+export const LAYOUT_WIDTH = IS_WIDE_SCREEN
+  ? Math.min(SCREEN_WIDTH, SCREEN_HEIGHT * 0.48)
+  : SCREEN_WIDTH;
+export const LAYOUT_OFFSET_X = (SCREEN_WIDTH - LAYOUT_WIDTH) / 2;
+
+// 调试：启动时输出屏幕适配参数，方便在开发者工具中排查
+console.log(`[屏幕适配] ${SCREEN_WIDTH}×${SCREEN_HEIGHT} ratio=${ASPECT_RATIO.toFixed(3)} wide=${IS_WIDE_SCREEN} layoutW=${LAYOUT_WIDTH.toFixed(0)} offsetX=${LAYOUT_OFFSET_X.toFixed(0)}`);
+
+/**
  * 图片资源 CDN 前缀。所有 `images/...` 路径都通过 `img(rel)` 包一层后再传给
  * `wx.createImage().src`。需要回退到本地资源时只把这里改成 '' 即可，调用方不动。
  *
@@ -58,4 +78,45 @@ export function loadImg(src) {
   };
   _imgCache.set(src, entry);
   return entry.promise;
+}
+
+/* ---------- 公用工具函数 ---------- */
+
+/**
+ * 缓动函数：easeOutCubic，移动末尾减速。
+ * 在 game.js / pushBox.js / sokobanBoard.js 中共用。
+ */
+export function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/**
+ * 判断点 (x, y) 是否在矩形 { x, y, w, h } 内。
+ * 在所有场景的触摸处理中共用。
+ */
+export function inRect(x, y, rect) {
+  return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+}
+
+/**
+ * 将图片以 cover 模式铺满指定区域（不留黑边），居中裁切。
+ * 在 game / home / pushBox / skin 等场景的 drawBackground 中共用。
+ */
+export function drawCoverImage(ctx, image, w, h) {
+  if (!image) return;
+  const ratio = image.width / image.height;
+  const sr = w / h;
+  let dw, dh, dx, dy;
+  if (ratio > sr) {
+    dh = h;
+    dw = dh * ratio;
+    dx = (w - dw) / 2;
+    dy = 0;
+  } else {
+    dw = w;
+    dh = dw / ratio;
+    dx = 0;
+    dy = (h - dh) / 2;
+  }
+  ctx.drawImage(image, dx, dy, dw, dh);
 }

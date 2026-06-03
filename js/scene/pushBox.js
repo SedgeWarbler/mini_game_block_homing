@@ -1,15 +1,8 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, easeOutCubic, inRect, drawCoverImage, LAYOUT_WIDTH, LAYOUT_OFFSET_X } from '../render';
 import { generateSokobanLevel, markLevelCleared } from '../game/sokobanGenerator';
 import SokobanBoard from '../game/sokobanBoard';
 
 const ctx = canvas.getContext('2d');
-
-/**
- * 缓动函数
- */
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
 
 /**
  * 推箱子场景所有需要的图片 URL。
@@ -162,6 +155,7 @@ export default class PushBoxScene {
       this.board.reset();
       this.showWinPopup = false;
       this.winAnimating = false;
+      this._winPopupLayout = null;
       this.undoRemaining = 1;  // 重置时恢复 1 次免费撤回
       this.adUndoUsed = false; // 重置时恢复广告机会
     }
@@ -172,20 +166,22 @@ export default class PushBoxScene {
   calcShellLayout() {
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
+    const ox = LAYOUT_OFFSET_X;
 
     this.topH = h * 0.085;
 
     // 顶部按钮布局（只有返回 + 步数，无关卡号）
     const topIconH = this.topH * 0.58;
     const iconCenterY = this.topH * 0.78;
-    const sideMargin = w * 0.04;
+    const sideMargin = lw * 0.04;
 
     this.btnLayout = this.btnLayout || {};
 
     if (this.images.returnBtn) {
       const bw = topIconH * (this.images.returnBtn.width / this.images.returnBtn.height);
       this.btnLayout.return = {
-        x: sideMargin,
+        x: ox + sideMargin,
         y: iconCenterY - topIconH / 2,
         w: bw,
         h: topIconH,
@@ -195,7 +191,7 @@ export default class PushBoxScene {
     if (this.images.stepBg) {
       const sw = topIconH * (this.images.stepBg.width / this.images.stepBg.height);
       this.stepRect = {
-        x: w - sideMargin - sw,
+        x: ox + lw - sideMargin - sw,
         y: iconCenterY - topIconH / 2,
         w: sw,
         h: topIconH,
@@ -208,6 +204,8 @@ export default class PushBoxScene {
 
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
+    const ox = LAYOUT_OFFSET_X;
 
     this.topH = h * 0.085;
 
@@ -216,7 +214,7 @@ export default class PushBoxScene {
 
     // 棋盘可用区域（撤回/重置已移至顶部栏，不再占中间空间）
     const availH = h - this.topH - this.dpadH - h * 0.01;
-    const maxW = w * 0.96;
+    const maxW = lw * 0.96;
     const maxH = availH * 0.96;
 
     // 根据行列计算单元格大小
@@ -236,12 +234,12 @@ export default class PushBoxScene {
     this.btnLayout = {};
     const topIconH = this.topH * 0.58;
     const iconCenterY = this.topH * 0.78;
-    const sideMargin = w * 0.04;
+    const sideMargin = lw * 0.04;
 
     if (this.images.returnBtn) {
       const bw = topIconH * (this.images.returnBtn.width / this.images.returnBtn.height);
       this.btnLayout.return = {
-        x: sideMargin,
+        x: ox + sideMargin,
         y: iconCenterY - topIconH / 2,
         w: bw,
         h: topIconH,
@@ -251,12 +249,13 @@ export default class PushBoxScene {
     if (this.images.stepBg) {
       const sw = topIconH * (this.images.stepBg.width / this.images.stepBg.height);
       this.stepRect = {
-        x: w - sideMargin - sw,
+        x: ox + lw - sideMargin - sw,
         y: iconCenterY - topIconH / 2,
         w: sw,
         h: topIconH,
       };
     }
+
 
     // 撤回 + 重置按钮放在顶部栏中间
     this._calcTopActionBtns(topIconH, iconCenterY);
@@ -267,10 +266,11 @@ export default class PushBoxScene {
 
   _calcTopActionBtns(topIconH, iconCenterY) {
     const w = SCREEN_WIDTH;
+    const lw = LAYOUT_WIDTH;
     const btnH = topIconH;
     const withdrawImg = this.images.pbWithdraw;
     const resetImg = this.images.pbReset;
-    const gap = w * 0.03;
+    const gap = lw * 0.03;
 
     // 下移一个按钮高度，避免与步数重叠
     const actionY = iconCenterY + btnH * 1.3;
@@ -289,12 +289,12 @@ export default class PushBoxScene {
   _calcDpadLayout() {
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
-    const dpadTop = h - this.dpadH + h * 0.01; // 上移
-    // const dpadTop = h - this.dpadH;
+    const lw = LAYOUT_WIDTH;
+    const dpadTop = h - this.dpadH + h * 0.01;
     const dpadCenterX = w / 2;
     const dpadCenterY = dpadTop + this.dpadH / 2 - h * 0.03; // 整体上移
 
-    const btnSize = Math.min(w * 0.18, this.dpadH * 0.38);
+    const btnSize = Math.min(lw * 0.18, this.dpadH * 0.38);
     const gap = btnSize * 0.6;
 
     this.dpadBtns = {
@@ -334,12 +334,13 @@ export default class PushBoxScene {
 
     const w = SCREEN_WIDTH;
     const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
 
     const bgImg = this.images.popupBg;
     if (!bgImg) return null;
 
     const bgRatio = bgImg.width / bgImg.height;
-    const popupW = w * 0.72;
+    const popupW = lw * 0.72;
     const popupH = popupW / bgRatio;
 
     const popupX = (w - popupW) / 2;
@@ -392,8 +393,8 @@ export default class PushBoxScene {
       this.pressedDir = null;
       this.pressedAction = null;
       this.winPressedKey = null;
-      this._swipeStartX = 0;
-      this._swipeStartY = 0;
+      this._swipeStartX = null;
+      this._swipeStartY = null;
       this._swiped = false;
     };
     wx.onTouchStart(this._touchStart);
@@ -409,9 +410,6 @@ export default class PushBoxScene {
     if (this._touchCancel) wx.offTouchCancel(this._touchCancel);
   }
 
-  inRect(x, y, rect) {
-    return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
-  }
 
   handleTouchStart(e) {
     if (!this.loaded) return;
@@ -421,7 +419,7 @@ export default class PushBoxScene {
 
     // loading 时只接受返回按钮
     if (this.levelLoading || !this.board) {
-      if (this.btnLayout && this.btnLayout.return && this.inRect(x, y, this.btnLayout.return)) {
+      if (this.btnLayout && this.btnLayout.return && inRect(x, y, this.btnLayout.return)) {
         this.pressedBtn = 'return';
       }
       return;
@@ -431,20 +429,20 @@ export default class PushBoxScene {
     if (this.showWinPopup) {
       const layout = this.calcWinPopupLayout();
       if (!layout) return;
-      if (layout.nextRect && this.inRect(x, y, layout.nextRect)) {
+      if (layout.nextRect && inRect(x, y, layout.nextRect)) {
         this.winPressedKey = 'next';
-      } else if (layout.homeRect && this.inRect(x, y, layout.homeRect)) {
+      } else if (layout.homeRect && inRect(x, y, layout.homeRect)) {
         this.winPressedKey = 'home';
       }
       return;
     }
 
     // 操作按钮（撤回 / 重置）
-    if (this.undoBtnRect && this.inRect(x, y, this.undoBtnRect)) {
+    if (this.undoBtnRect && inRect(x, y, this.undoBtnRect)) {
       this.pressedAction = 'undo';
       return;
     }
-    if (this.resetBtnRect && this.inRect(x, y, this.resetBtnRect)) {
+    if (this.resetBtnRect && inRect(x, y, this.resetBtnRect)) {
       this.pressedAction = 'reset';
       return;
     }
@@ -452,7 +450,7 @@ export default class PushBoxScene {
     // 方向键
     if (this.dpadBtns) {
       for (const [dir, rect] of Object.entries(this.dpadBtns)) {
-        if (this.inRect(x, y, rect)) {
+        if (inRect(x, y, rect)) {
           this.pressedDir = dir;
           return;
         }
@@ -461,7 +459,7 @@ export default class PushBoxScene {
 
     // 顶部按钮
     for (const [key, rect] of Object.entries(this.btnLayout)) {
-      if (this.inRect(x, y, rect)) {
+      if (inRect(x, y, rect)) {
         this.pressedBtn = key;
         return;
       }
@@ -480,7 +478,7 @@ export default class PushBoxScene {
 
   handleTouchMove(e) {
     if (this.showWinPopup || this.levelLoading || !this.board) return;
-    if (this._swipeStartX === undefined || this._swiped) return;
+    if (this._swipeStartX == null || this._swiped) return;
     if (this.board.isAnimating()) return;
 
     const touch = e.touches[0];
@@ -510,7 +508,7 @@ export default class PushBoxScene {
     if (this.levelLoading || !this.board) {
       if (this.pressedBtn === 'return') {
         const rect = this.btnLayout && this.btnLayout.return;
-        if (rect && this.inRect(x, y, rect) && this.onHome) {
+        if (rect && inRect(x, y, rect) && this.onHome) {
           this.onHome();
         }
       }
@@ -526,7 +524,7 @@ export default class PushBoxScene {
       const layout = this.calcWinPopupLayout();
       if (!layout) return;
       const rect = key === 'next' ? layout.nextRect : layout.homeRect;
-      if (rect && this.inRect(x, y, rect)) {
+      if (rect && inRect(x, y, rect)) {
         if (key === 'next') {
           this.startNewLevel();
         } else if (key === 'home' && this.onHome) {
@@ -540,9 +538,9 @@ export default class PushBoxScene {
     if (this.pressedAction) {
       const action = this.pressedAction;
       this.pressedAction = null;
-      if (action === 'undo' && this.undoBtnRect && this.inRect(x, y, this.undoBtnRect)) {
+      if (action === 'undo' && this.undoBtnRect && inRect(x, y, this.undoBtnRect)) {
         this._handleUndo();
-      } else if (action === 'reset' && this.resetBtnRect && this.inRect(x, y, this.resetBtnRect)) {
+      } else if (action === 'reset' && this.resetBtnRect && inRect(x, y, this.resetBtnRect)) {
         this.restartLevel();
       }
       return;
@@ -553,7 +551,7 @@ export default class PushBoxScene {
       const dir = this.pressedDir;
       this.pressedDir = null;
       const rect = this.dpadBtns && this.dpadBtns[dir];
-      if (rect && this.inRect(x, y, rect)) {
+      if (rect && inRect(x, y, rect)) {
         this._tryMove(dir);
       }
       return;
@@ -564,7 +562,7 @@ export default class PushBoxScene {
       const key = this.pressedBtn;
       this.pressedBtn = null;
       const rect = this.btnLayout[key];
-      if (rect && this.inRect(x, y, rect)) {
+      if (rect && inRect(x, y, rect)) {
         if (key === 'return' && this.onHome) {
           this.onHome();
         }
@@ -572,8 +570,8 @@ export default class PushBoxScene {
       return;
     }
 
-    this._swipeStartX = undefined;
-    this._swipeStartY = undefined;
+    this._swipeStartX = null;
+    this._swipeStartY = null;
     this._swiped = false;
   }
 
@@ -719,23 +717,7 @@ export default class PushBoxScene {
   }
 
   drawBackground() {
-    const bgImg = this.images.pbBg;
-    if (!bgImg) return;
-    const ratio = bgImg.width / bgImg.height;
-    const sr = SCREEN_WIDTH / SCREEN_HEIGHT;
-    let dw, dh, dx, dy;
-    if (ratio > sr) {
-      dh = SCREEN_HEIGHT;
-      dw = dh * ratio;
-      dx = (SCREEN_WIDTH - dw) / 2;
-      dy = 0;
-    } else {
-      dw = SCREEN_WIDTH;
-      dh = dw / ratio;
-      dx = 0;
-      dy = (SCREEN_HEIGHT - dh) / 2;
-    }
-    ctx.drawImage(bgImg, dx, dy, dw, dh);
+    drawCoverImage(ctx, this.images.pbBg, SCREEN_WIDTH, SCREEN_HEIGHT);
   }
 
   drawLoading() {
@@ -797,6 +779,7 @@ export default class PushBoxScene {
         this.stepRect.y + this.stepRect.h / 2 + 1
       );
     }
+
   }
 
   drawBoard() {
