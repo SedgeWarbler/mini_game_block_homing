@@ -395,7 +395,11 @@ export default class GameScene {
     this.promptH = h * 0.045;
     this.bottomH = h * 0.11;
 
-    const availH = h - this.topH - this.promptH - this.bottomH;
+    // 撤回/重置按钮高度 + 上下间距，在提示栏和棋盘之间预留空间
+    const actionBtnH = this.topH * 0.58;
+    const actionBarH = actionBtnH + h * 0.02; // 按钮高度 + 上下间距
+
+    const availH = h - this.topH - this.promptH - actionBarH - this.bottomH;
     const maxW = lw * 0.92;
     const maxH = availH * 0.96;
 
@@ -415,9 +419,10 @@ export default class GameScene {
     this.boardW = this.innerW + this.boardPadding * 2;
     this.boardH = this.innerH + this.boardPadding * 2;
 
-    // 居中（基于全屏宽度居中，不仅仅是 LAYOUT_WIDTH）
+    // 棋盘起始 Y：提示栏 + 操作按钮栏之后的可用区域居中
+    const boardAreaTop = this.topH + this.promptH + actionBarH;
     this.boardX = (w - this.boardW) / 2;
-    this.boardY = this.topH + this.promptH + (availH - this.boardH) / 2;
+    this.boardY = boardAreaTop + (availH - this.boardH) / 2;
     this.innerX = this.boardX + this.boardPadding;
     this.innerY = this.boardY + this.boardPadding;
 
@@ -480,14 +485,18 @@ export default class GameScene {
   }
 
   /**
-   * 计算撤回 & 重置按钮布局（放在棋盘上方居中）
+   * 计算撤回 & 重置按钮布局（放在提示栏和棋盘之间的预留区域居中）
    */
   _calcActionBtns() {
     const w = SCREEN_WIDTH;
+    const h = SCREEN_HEIGHT;
     const btnH = this.topH * 0.58;
     const gap = LAYOUT_WIDTH * 0.08;
-    // 按钮放在棋盘上方，紧贴棋盘顶部
-    const actionCenterY = this.boardY - btnH * 0.8;
+
+    // 提示栏底部位置
+    const promptBottom = this.topH + this.promptH;
+    // 按钮区域居中于提示栏底部与棋盘顶部之间
+    const actionCenterY = (promptBottom + this.boardY) / 2;
 
     const withdrawImg = this.images.withdrawBtn;
     const resetImg = this.images.resetBtn;

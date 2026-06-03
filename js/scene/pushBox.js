@@ -20,6 +20,9 @@ export function buildPushBoxPaths() {
     pbStone: img('images/push_box/stone.png'),
     pbWithdraw: img('images/push_box/withdraw.png'),
     pbReset: img('images/push_box/reset.png'),
+    rulePrompt: img('images/push_box/rule/prompt.png'),
+    ruleClose: img('images/push_box/rule/close.png'),
+    ruleKnow: img('images/push_box/rule/know.png'),
   };
 }
 
@@ -54,6 +57,14 @@ export default class PushBoxScene {
   winAnimating = false;
   winPressedKey = null;
 
+  // 玩法提示弹窗
+  showRulePopup = false;
+  ruleAlpha = 0;
+  ruleScale = 0.7;
+  ruleAnimating = false;
+  rulePressedKey = null;
+  _ruleShownOnce = false;
+
   // 旋转后的方向键缓存 canvas
   _dirImages = {};
 
@@ -65,6 +76,8 @@ export default class PushBoxScene {
       this._prepareDirectionImages();
       this.bindEvents();
       this.startNewLevel();
+      // 首次进入自动弹出玩法提示
+      this._showRulePopup();
     });
   }
 
@@ -382,6 +395,79 @@ export default class PushBoxScene {
     return this._winPopupLayout;
   }
 
+  /* ---------- 玩法提示弹窗布局 ---------- */
+
+  _rulePopupLayout = null;
+
+  calcRulePopupLayout() {
+    if (this._rulePopupLayout) return this._rulePopupLayout;
+
+    const w = SCREEN_WIDTH;
+    const h = SCREEN_HEIGHT;
+    const lw = LAYOUT_WIDTH;
+
+    const promptImg = this.images.rulePrompt;
+    if (!promptImg) return null;
+
+    const bgRatio = promptImg.width / promptImg.height;
+    const popupW = lw * 0.85;
+    const popupH = popupW / bgRatio;
+
+    const popupX = (w - popupW) / 2;
+    const popupY = (h - popupH) / 2 - h * 0.04;
+
+    // 关闭按钮（右上角，半嵌入背景图角落）
+    const closeBtnSize = popupW * 0.09;
+    const closeRect = {
+      x: popupX + popupW - closeBtnSize * 1.0,
+      y: popupY + closeBtnSize * 0.2,
+      w: closeBtnSize,
+      h: closeBtnSize,
+    };
+
+    // "我知道了" 按钮（骑在背景图底部边缘，居中）
+    const knowImg = this.images.ruleKnow;
+    let knowRect = null;
+    if (knowImg) {
+      const knowRatio = knowImg.width / knowImg.height;
+      const knowW = popupW * 0.50;
+      const knowH = knowW / knowRatio;
+      knowRect = {
+        x: (w - knowW) / 2,
+        y: popupY + popupH - knowH * 0.65,
+        w: knowW,
+        h: knowH,
+      };
+    }
+
+    this._rulePopupLayout = { popupX, popupY, popupW, popupH, closeRect, knowRect };
+    return this._rulePopupLayout;
+  }
+
+  _showRulePopup() {
+    // 使用本地存储持久化，用户只在首次进入时看到弹窗
+    try {
+      if (wx.getStorageSync('pushbox_rule_shown')) return;
+    } catch (e) {}
+    if (this._ruleShownOnce) return;
+    this._ruleShownOnce = true;
+    this.showRulePopup = true;
+    this.ruleAnimating = true;
+    this.ruleAlpha = 0;
+    this.ruleScale = 0.7;
+    this._rulePopupLayout = null;
+  }
+
+  _hideRulePopup() {
+    this.showRulePopup = false;
+    this.ruleAnimating = false;
+    this.rulePressedKey = null;
+    // 持久化标记，下次进入不再弹窗
+    try {
+      wx.setStorageSync('pushbox_rule_shown', true);
+    } catch (e) {}
+  }
+
   /* ---------- 事件绑定 ---------- */
 
   bindEvents() {
@@ -393,6 +479,7 @@ export default class PushBoxScene {
       this.pressedDir = null;
       this.pressedAction = null;
       this.winPressedKey = null;
+      this.rulePressedKey = null;
       this._swipeStartX = null;
       this._swipeStartY = null;
       this._swiped = false;
@@ -421,6 +508,18 @@ export default class PushBoxScene {
     if (this.levelLoading || !this.board) {
       if (this.btnLayout && this.btnLayout.return && inRect(x, y, this.btnLayout.return)) {
         this.pressedBtn = 'return';
+      }
+      return;
+    }
+
+    // 玩法提示弹窗事件优先
+    if (this.showRulePopup) {
+      const layout = this.calcRulePopupLayout();
+      if (!layout) return;
+      if (layout.closeRect && inRect(x, y, layout.closeRect)) {
+        this.rulePressedKey = 'close';
+      } else if (layout.knowRect && inRect(x, y, layout.knowRect)) {
+        this.rulePressedKey = 'know';
       }
       return;
     }
@@ -477,7 +576,7 @@ export default class PushBoxScene {
   }
 
   handleTouchMove(e) {
-    if (this.showWinPopup || this.levelLoading || !this.board) return;
+    if (this.showRulePopup || this.showWinPopup || this.levelLoading || !this.board) return;
     if (this._swipeStartX == null || this._swiped) return;
     if (this.board.isAnimating()) return;
 
@@ -513,6 +612,20 @@ export default class PushBoxScene {
         }
       }
       this.pressedBtn = null;
+      return;
+    }
+
+    // 玩法提示弹窗
+    if (this.showRulePopup) {
+      const key = this.rulePressedKey;
+      this.rulePressedKey = null;
+      if (!key) return;
+      const layout = this.calcRulePopupLayout();
+      if (!layout) return;
+      const rect = key === 'close' ? layout.closeRect : layout.knowRect;
+      if (rect && inRect(x, y, rect)) {
+        this._hideRulePopup();
+      }
       return;
     }
 
@@ -691,6 +804,15 @@ export default class PushBoxScene {
         this.winAnimating = false;
       }
     }
+
+    // 玩法提示弹窗入场动画
+    if (this.ruleAnimating) {
+      this.ruleAlpha = Math.min(1, this.ruleAlpha + 0.06);
+      this.ruleScale = Math.min(1, this.ruleScale + 0.04);
+      if (this.ruleAlpha >= 1 && this.ruleScale >= 1) {
+        this.ruleAnimating = false;
+      }
+    }
   }
 
   /* ---------- 渲染 ---------- */
@@ -713,6 +835,10 @@ export default class PushBoxScene {
 
     if (this.showWinPopup) {
       this.drawWinPopup();
+    }
+
+    if (this.showRulePopup) {
+      this.drawRulePopup();
     }
   }
 
@@ -973,4 +1099,68 @@ export default class PushBoxScene {
     ctx.drawImage(btnImg, rect.x, rect.y, rect.w, rect.h);
     ctx.restore();
   }
+
+  /* ---------- 玩法提示弹窗 ---------- */
+
+  drawRulePopup() {
+    const layout = this.calcRulePopupLayout();
+    if (!layout) return;
+
+    ctx.save();
+    ctx.globalAlpha = this.ruleAlpha;
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // 弹窗整体缩放
+    const totalBottom = layout.knowRect
+      ? layout.knowRect.y + layout.knowRect.h
+      : layout.popupY + layout.popupH;
+    const cx = layout.popupX + layout.popupW / 2;
+    const cy = (layout.popupY + totalBottom) / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(this.ruleScale, this.ruleScale);
+    ctx.translate(-cx, -cy);
+
+    // 弹窗背景图
+    const promptImg = this.images.rulePrompt;
+    if (promptImg) {
+      ctx.drawImage(promptImg, layout.popupX, layout.popupY, layout.popupW, layout.popupH);
+    }
+
+    // 关闭按钮
+    const closeImg = this.images.ruleClose;
+    if (closeImg && layout.closeRect) {
+      ctx.save();
+      if (this.rulePressedKey === 'close') {
+        const bx = layout.closeRect.x + layout.closeRect.w / 2;
+        const by = layout.closeRect.y + layout.closeRect.h / 2;
+        ctx.translate(bx, by);
+        ctx.scale(0.9, 0.9);
+        ctx.translate(-bx, -by);
+      }
+      ctx.drawImage(closeImg, layout.closeRect.x, layout.closeRect.y, layout.closeRect.w, layout.closeRect.h);
+      ctx.restore();
+    }
+
+    // "我知道了" 按钮
+    const knowImg = this.images.ruleKnow;
+    if (knowImg && layout.knowRect) {
+      ctx.save();
+      if (this.rulePressedKey === 'know') {
+        const bx = layout.knowRect.x + layout.knowRect.w / 2;
+        const by = layout.knowRect.y + layout.knowRect.h / 2;
+        ctx.translate(bx, by);
+        ctx.scale(0.92, 0.92);
+        ctx.translate(-bx, -by);
+      }
+      ctx.drawImage(knowImg, layout.knowRect.x, layout.knowRect.y, layout.knowRect.w, layout.knowRect.h);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
 }
+
