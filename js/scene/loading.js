@@ -42,8 +42,9 @@ export default class LoadingScene {
   images = {};
   progress = 0;           // 真实加载进度 0..1
   displayProgress = 0;    // 渲染用的平滑进度，从 0 开始
-  _fakeProgress = 0;      // 假进度：模拟加载感，匀速推进到 ~90%
+  _fakeProgress = 0;      // 假进度：模拟加载感，匀速推进到 ~80%
   _completed = false;
+  _startTime = Date.now(); // 记录开始时间，用于超时兜底
 
   constructor(onComplete) {
     this.onComplete = onComplete;
@@ -74,10 +75,11 @@ export default class LoadingScene {
    */
   _startPreloadAll() {
     // P0+P1: 首页 + 游戏核心 — 进度条追踪
+    // 首页图片优先放在队列最前面，确保切换到首页时已全部命中缓存。
+    // SKIN_IMAGE_PATHS 移至延迟加载：仅在进入皮肤场景时需要，不阻塞首页。
     const coreUrls = [
-      ...Object.values(HOME_IMAGE_PATHS),
-      ...Object.values(SKIN_IMAGE_PATHS),
-      ...Object.values(buildGameSceneCorePaths()),
+      ...Object.values(HOME_IMAGE_PATHS),          // P0: 首页素材（最优先）
+      ...Object.values(buildGameSceneCorePaths()),  // P1: 游戏核心棋盘/方块/UI
     ];
     const total = coreUrls.length;
     if (total === 0) {
@@ -94,7 +96,9 @@ export default class LoadingScene {
     }
 
     // P2: 延迟资源 — 火并遗忘式后台下载，不影响进度条
+    // 包含：皮肤场景卡片图、传送门帧动画、通关/失败/弹窗素材、各皮肤详情图
     const deferredUrls = [
+      ...Object.values(SKIN_IMAGE_PATHS),           // 皮肤分类选择场景（进入时才需要）
       ...Object.values(buildGameSceneDeferredPaths()),
       ...Object.values(buildBlockSkinPaths()),
       ...Object.values(buildStoneSkinPaths()),
@@ -111,12 +115,25 @@ export default class LoadingScene {
     // 加载场景没有触摸交互，无需解绑
   }
 
+  /** 加载场景始终需要全速渲染（进度条持续动画）*/
+  isAnimating() {
+    return !this._completed;
+  }
+
   update() {
-    // 假进度：从 0 匀速推进，越接近 90% 越慢，营造"正在努力加载"的真实感
-    if (this._fakeProgress < 0.9) {
-      // 前 70% 快推，70%~90% 减速，模拟大文件加载的自然节奏
-      const speed = this._fakeProgress < 0.7 ? 0.008 : 0.002;
-      this._fakeProgress = Math.min(0.9, this._fakeProgress + speed);
+    // 假进度：从 0 匀速推进，前期快、中期渐慢，最终停在 ~80%，
+    // 留出 80%~100% 的区间跟随真实下载进度，减少"卡住"感。
+    if (this._fakeProgress < 0.8) {
+      // 前 60% 快推，60%~80% 减速，模拟大文件加载的自然节奏
+      const speed = this._fakeProgress < 0.6 ? 0.008 : 0.002;
+      this._fakeProgress = Math.min(0.8, this._fakeProgress + speed);
+    }
+
+    // 超时兜底：如果总加载时间超过 10 秒，直接把真实进度拉满，不再等待慢速/失败资源。
+    // （loadImg 本身有 6 秒单图超时，两层保护确保不会无限等待。）
+    const elapsed = Date.now() - this._startTime;
+    if (elapsed > 10000 && this.progress < 1) {
+      this.progress = 1;
     }
 
     // 目标进度 = 假进度 与 真实进度 取较大值

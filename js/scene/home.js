@@ -37,13 +37,26 @@ export default class HomeScene {
   }
 
   loadResources() {
-    return Promise.all(
-      Object.entries(HOME_IMAGE_PATHS).map(([key, src]) =>
-        loadImg(src).then((image) => {
-          if (image) this.images[key] = image; // 加载失败时跳过，让 drawXxx 走"图缺失"分支
-        })
-      )
-    );
+    // 关键图片（决定能否响应点击）：背景 + 主操作按钮
+    // 非关键图片（底部入口小图标）：后台静默加载，加载完毕后自动刷新布局
+    const criticalKeys = new Set(['bg', 'startBtn', 'continueBtn', 'continueBtnAsh']);
+    const criticalPromises = [];
+
+    for (const [key, src] of Object.entries(HOME_IMAGE_PATHS)) {
+      const p = loadImg(src).then((image) => {
+        if (image) {
+          this.images[key] = image;
+          // 每张图到位后立即令布局缓存失效，下一帧自动重算并渲染新图标
+          this._cachedLayout = null;
+        }
+      });
+      if (criticalKeys.has(key)) {
+        criticalPromises.push(p);
+      }
+      // 非关键图片：fire-and-forget，不阻塞 loaded 标志
+    }
+
+    return Promise.all(criticalPromises);
   }
 
   bindEvents() {
@@ -60,6 +73,11 @@ export default class HomeScene {
     if (this._touchStart) wx.offTouchStart(this._touchStart);
     if (this._touchEnd) wx.offTouchEnd(this._touchEnd);
     if (this._touchCancel) wx.offTouchCancel(this._touchCancel);
+  }
+
+  /** 首页渲染轻量（几张图），保持全速以确保按钮高亮即时响应 */
+  isAnimating() {
+    return true;
   }
 
   /**
@@ -253,14 +271,20 @@ export default class HomeScene {
   update() {}
 
   render() {
-    if (!this.loaded) return; // LoadingScene 已确保资源就绪，这里几乎不会命中
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // 背景优先渲染：bg 一就绪就显示，不等其他图标（drawCoverImage 内部对 null 图片做了兜底）
     this.drawBackground();
+
+    // 关键按钮需要图片尺寸来计算布局，且事件绑定在 loaded=true 之后才生效；
+    // loaded=false 时仅展示背景占位，避免黑屏；通常此情况极短暂（缓存命中时为 0 帧）
+    if (!this.loaded) return;
+
     const layout = this.getLayout();
     this.drawImageBtn('startBtn', 'start', layout);
     this.drawImageBtn('continueBtn', 'continue', layout);
-    // 底部入口
+    // 底部入口（后台加载，到位后自动出现）
     this.drawImageBtn('pushBox', 'pushBox', layout);
     this.drawImageBtn('skin', 'skin', layout);
   }

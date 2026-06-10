@@ -269,6 +269,13 @@ export default class SokobanBoard {
   }
 
   /**
+   * 缓动函数：easeOutCubic
+   */
+  _easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  /**
    * 判定胜利：所有目标点上都有箱子
    */
   isWin() {

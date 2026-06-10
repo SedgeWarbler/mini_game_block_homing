@@ -427,7 +427,7 @@ export default class SkinDetailScene {
     const bgImg = this.images.homeBg;
     if (!bgImg) { ctx.fillStyle = '#A6D8FF'; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); return; }
     ctx.save();
-    try { ctx.filter = `blur(${Math.round(6 * DPR)}px)`; } catch (_) {}
+    try { ctx.filter = `blur(${Math.round(6 * DPR)}px)`; } catch (_) { }
     drawCoverImage(ctx, bgImg, SCREEN_WIDTH, SCREEN_HEIGHT);
     ctx.restore();
     ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); ctx.restore();

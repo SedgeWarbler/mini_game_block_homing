@@ -5,8 +5,11 @@ const windowInfo = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync(
 /**
  * 设备像素比（高清屏适配）。
  * canvas 物理尺寸 = 逻辑尺寸 × DPR，绘图坐标通过 ctx.scale(DPR, DPR) 保持逻辑坐标不变。
+ *
+ * 性能优化：将 DPR 限制在 2，避免高端手机（DPR=3）渲染 9× 像素量导致卡顿。
+ * 视觉质量几乎不受影响（2× 已经非常清晰），但帧率提升明显。
  */
-export const DPR = windowInfo.pixelRatio || wx.getSystemInfoSync().pixelRatio || 2;
+export const DPR = Math.min(windowInfo.pixelRatio || wx.getSystemInfoSync().pixelRatio || 2, 2);
 
 canvas.width = windowInfo.screenWidth * DPR;
 canvas.height = windowInfo.screenHeight * DPR;
@@ -59,6 +62,15 @@ export function img(rel) {
  */
 const _imgCache = new Map();
 
+/**
+ * 单图加载超时（毫秒）。超时后 resolve(null)，计入进度，不再阻塞整体加载条。
+ * 图片仍在后台继续下载；下次调用 loadImg 时若已缓存则正常命中。
+ *
+ * 从 8000ms 降为 6000ms：让超时更快触发，首页进度条不再因个别慢图长时间卡住；
+ * 缓存已清除后 loadImg 会在下一次调用时重试，通常网络恢复后能快速补全。
+ */
+const IMG_LOAD_TIMEOUT_MS = 6000;
+
 export function loadImg(src) {
   const cached = _imgCache.get(src);
   if (cached) return cached.promise;
@@ -67,11 +79,29 @@ export function loadImg(src) {
   const entry = {
     image,
     promise: new Promise((resolve) => {
-      image.onload = () => resolve(image);
+      let settled = false;
+      const settle = (val) => {
+        if (settled) return;
+        settled = true;
+        resolve(val);
+      };
+
+      // 超时保护：单张图超过 IMG_LOAD_TIMEOUT_MS 仍未加载，视为跳过
+      const timer = setTimeout(() => {
+        console.warn('图片加载超时，跳过', src);
+        _imgCache.delete(src); // 允许后续重试
+        settle(null);
+      }, IMG_LOAD_TIMEOUT_MS);
+
+      image.onload = () => {
+        clearTimeout(timer);
+        settle(image);
+      };
       image.onerror = () => {
+        clearTimeout(timer);
         console.warn('图片加载失败', src);
         _imgCache.delete(src); // 删缓存让下次有机会重试，不让坏图永远占位
-        resolve(null);
+        settle(null);
       };
       image.src = src;
     }),

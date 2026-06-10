@@ -1090,6 +1090,22 @@ export default class GameScene {
 
   /* ---------- 渲染 ---------- */
 
+  /**
+   * 当有任何动画/交互正在进行时返回 true，通知主循环使用全速渲染。
+   * 静止状态（无动画、无弹窗）时返回 false，主循环会降频至 ~30fps 省电。
+   */
+  isAnimating() {
+    if (!this.loaded) return true; // 资源加载中，需要全速
+    if (this.levelLoading) return true;
+    if (this.blockAnim) return true;
+    if (this.successAnimating || this.failAnimating) return true;
+    if (this.portalPromptAnimating || this.gameplayPromptAnimating) return true;
+    if (this.board && this.board.shakingBlockId !== null) return true;
+    if (this.selectedBlockId !== null) return true; // 选中时有虚线动画
+    if (this.pressedBtn || this.pressedAction) return true;
+    return false;
+  }
+
   update() {
     if (this.board) this.board.updateShake();
     this.updateBlockAnim();

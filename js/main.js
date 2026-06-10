@@ -171,11 +171,19 @@ export default class Main {
     this.switchScene('game', { level: this.databus.currentLevel });
   }
 
-  loop() {
+  loop(timestamp) {
+    // 性能优化：当场景无动画、无交互时，降到约 30fps 渲染，节省移动端 GPU 开销。
+    // 场景可暴露 isAnimating() 返回 true 来要求全速渲染；否则最多每 33ms 渲染一次。
     const scene = this.currentScene;
     if (scene) {
-      if (scene.update) scene.update();
-      if (scene.render) scene.render();
+      const needFull = scene.isAnimating ? scene.isAnimating() : true;
+      const interval = needFull ? 0 : 33; // 全速 vs ~30fps
+      const last = this._lastRenderTime || 0;
+      if (timestamp - last >= interval) {
+        this._lastRenderTime = timestamp;
+        if (scene.update) scene.update();
+        if (scene.render) scene.render();
+      }
     }
     requestAnimationFrame(this._loop);
   }

@@ -104,10 +104,10 @@ export default class SkinScene {
 
     // 4 张卡片 — 2×2 网格布局
     const cards = [
-      { key: 'block',  imgKey: 'block' },
-      { key: 'stone',  imgKey: 'stone' },
+      { key: 'block', imgKey: 'block' },
+      { key: 'stone', imgKey: 'stone' },
       { key: 'portal', imgKey: 'portal' },
-      { key: 'grid',   imgKey: 'grid' },
+      { key: 'grid', imgKey: 'grid' },
     ];
 
     const cardGap = lw * 0.025;           // 卡片间距
