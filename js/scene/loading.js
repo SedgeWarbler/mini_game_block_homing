@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, LAYOUT_WIDTH } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, loadImg, LAYOUT_WIDTH } from '../render';
 import { buildGameSceneCorePaths, buildGameSceneDeferredPaths } from './game';
 import { HOME_IMAGE_PATHS } from './home';
 import { SKIN_IMAGE_PATHS } from './skin';
@@ -65,21 +65,29 @@ export default class LoadingScene {
   /**
    * 阶段 2：并行预下首页 + 游戏资源。
    *
-   * 图片分级加载：
-   *   - P0+P1（核心）：首页素材 + 游戏棋盘/方块/洞/石块/UI，进度条追踪这部分。
-   *   - P2（延迟）：传送门帧动画、通关/失败/传送门提示/玩法提示弹窗素材，
-   *     后台火并遗忘式下载，不阻塞进度条。首次触发弹窗时 loadImg 缓存通常已命中。
+   * 图片分级加载（按"必须就位 / 可延后"两档划分）：
    *
-   * 利用 loadImg 的全局缓存：home/game 场景之后调 loadResources 时会直接命中，
-   * 几乎零等待。
+   *   ─ 进度条追踪（决定能否进入首页 → 游戏） ─
+   *     P0  本地素材：HOME_IMAGE_PATHS + buildPushBoxPaths()
+   *         随小程序包发布，不走网络，几乎当帧 resolve，确保首页 / 推箱子永不黑屏。
+   *     P1  CDN 核心：buildGameSceneCorePaths()
+   *         游戏主棋盘 / 方块 / 石块 / 传送门 / UI —— **必须**全部下载完成才允许切到首页，
+   *         避免玩家点"开始 / 继续"进入游戏后出现素材缺失。
+   *
+   *   ─ 火并遗忘式后台下载（不阻塞进度条，可在游戏中陆续到位） ─
+   *     P2  CDN 延迟：成功 / 失败 / 传送门提示 / 玩法提示弹窗 + 各皮肤场景图
+   *         即使玩家已进入游戏才加载完也无所谓 —— 弹窗触发时 loadImg 缓存通常已命中；
+   *         未命中也会回退到纯色占位，绝不黑屏。
+   *
+   * 复用 loadImg 全局缓存：home/game/pushBox 场景之后调 loadResources 时直接命中。
    */
   _startPreloadAll() {
-    // P0+P1: 首页 + 游戏核心 — 进度条追踪
-    // 首页图片优先放在队列最前面，确保切换到首页时已全部命中缓存。
-    // SKIN_IMAGE_PATHS 移至延迟加载：仅在进入皮肤场景时需要，不阻塞首页。
+    // ===== P0 + P1：进度条追踪的核心资源 =====
+    // 顺序：本地素材在前（瞬时 resolve、推动进度条快速起步），CDN 资源紧随其后。
     const coreUrls = [
-      ...Object.values(HOME_IMAGE_PATHS),          // P0: 首页素材（最优先）
-      ...Object.values(buildGameSceneCorePaths()),  // P1: 游戏核心棋盘/方块/UI
+      ...Object.values(HOME_IMAGE_PATHS),           // P0a 本地：首页（最优先，无网络等待）
+      ...Object.values(buildPushBoxPaths()),        // P0b 本地：推箱子（同样本地，秒开）
+      ...Object.values(buildGameSceneCorePaths()),  // P1  CDN：游戏核心（必须就位才能进游戏）
     ];
     const total = coreUrls.length;
     if (total === 0) {
@@ -95,16 +103,16 @@ export default class LoadingScene {
       });
     }
 
-    // P2: 延迟资源 — 火并遗忘式后台下载，不影响进度条
-    // 包含：皮肤场景卡片图、传送门帧动画、通关/失败/弹窗素材、各皮肤详情图
+    // ===== P2：火并遗忘式后台下载 — 不影响进度条 =====
+    // 包含：游戏内通关 / 失败 / 提示弹窗素材；皮肤分类选择场景；各皮肤详情图。
+    // 这些在玩家点开对应入口前未必需要，缺失也由场景内部纯色 / 占位渲染兜底。
     const deferredUrls = [
-      ...Object.values(SKIN_IMAGE_PATHS),           // 皮肤分类选择场景（进入时才需要）
-      ...Object.values(buildGameSceneDeferredPaths()),
+      ...Object.values(buildGameSceneDeferredPaths()), // 游戏内弹窗素材
+      ...Object.values(SKIN_IMAGE_PATHS),               // 皮肤入口场景
       ...Object.values(buildBlockSkinPaths()),
       ...Object.values(buildStoneSkinPaths()),
       ...Object.values(buildPortalSkinPaths()),
       ...Object.values(buildGridSkinPaths()),
-      ...Object.values(buildPushBoxPaths()),
     ];
     for (const src of deferredUrls) {
       loadImg(src); // 不 .then，不计入 progress

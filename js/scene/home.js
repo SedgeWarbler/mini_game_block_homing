@@ -1,14 +1,18 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, img, loadImg, drawCoverImage, LAYOUT_WIDTH, LAYOUT_OFFSET_X } from '../render';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, DPR, loadImg, drawCoverImage, LAYOUT_WIDTH, LAYOUT_OFFSET_X } from '../render';
 
 // 导出供 LoadingScene 统一预加载使用
+//
+// 注意：首页素材全部走「本地相对路径」（随小程序包一起发布），
+// 不再依赖 OSS。这样首页打开就能立即渲染，绝不会出现 CDN 慢导致的纯黑屏。
+// loadImg 内部使用 wx.createImage().src，相对路径会直接从小程序包内读取。
 export const HOME_IMAGE_PATHS = {
-  bg: img('images/home/background.png'),
-  startBtn: img('images/home/start_game.png'),
-  continueBtn: img('images/home/continue_game.png'),
-  continueBtnAsh: img('images/home/continue_game_ash.png'),
-  pushBox: img('images/home/push_box.png'),
+  bg: 'images/home/background.png',
+  startBtn: 'images/home/start_game.png',
+  continueBtn: 'images/home/continue_game.png',
+  continueBtnAsh: 'images/home/continue_game_ash.png',
+  pushBox: 'images/home/push_box.png',
 
-  skin: img('images/home/skin.png'),
+  skin: 'images/home/skin.png',
 };
 
 const ctx = canvas.getContext('2d');

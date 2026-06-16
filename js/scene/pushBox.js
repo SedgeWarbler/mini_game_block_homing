@@ -7,22 +7,25 @@ const ctx = canvas.getContext('2d');
 /**
  * 推箱子场景所有需要的图片 URL。
  * 用于 LoadingScene 预加载。
+ *
+ * 注意：推箱子素材全部走「本地相对路径」（随小程序包一起发布），
+ * 不再走 OSS CDN —— 进入推箱子场景就能立刻渲染，杜绝因网络慢造成的"黑屏 / 素材缺失"。
  */
 export function buildPushBoxPaths() {
   return {
-    pbBg: img('images/push_box/background.png'),
-    pbBlockBg: img('images/push_box/block_background.png'),
-    pbBox: img('images/push_box/box.png'),
-    pbBoxSuccess: img('images/push_box/box_success.png'),
-    pbDestination: img('images/push_box/destination.png'),
-    pbDirection: img('images/push_box/direction.png'),
-    pbPeople: img('images/push_box/people.png'),
-    pbStone: img('images/push_box/stone.png'),
-    pbWithdraw: img('images/push_box/withdraw.png'),
-    pbReset: img('images/push_box/reset.png'),
-    rulePrompt: img('images/push_box/rule/prompt.png'),
-    ruleClose: img('images/push_box/rule/close.png'),
-    ruleKnow: img('images/push_box/rule/know.png'),
+    pbBg: 'images/push_box/background.png',
+    pbBlockBg: 'images/push_box/block_background.png',
+    pbBox: 'images/push_box/box.png',
+    pbBoxSuccess: 'images/push_box/box_success.png',
+    pbDestination: 'images/push_box/destination.png',
+    pbDirection: 'images/push_box/direction.png',
+    pbPeople: 'images/push_box/people.png',
+    pbStone: 'images/push_box/stone.png',
+    pbWithdraw: 'images/push_box/withdraw.png',
+    pbReset: 'images/push_box/reset.png',
+    rulePrompt: 'images/push_box/rule/prompt.png',
+    ruleClose: 'images/push_box/rule/close.png',
+    ruleKnow: 'images/push_box/rule/know.png',
   };
 }
 
@@ -91,9 +94,9 @@ export default class PushBoxScene {
       returnBtn: img('images/game/return.png'),
       stepBg: img('images/game/step.png'),
     };
-    // 加载通关弹窗素材
+    // 加载通关弹窗素材：背景图本地资源（秒开），按钮走 CDN
     const winPaths = {
-      popupBg: img('images/push_box/level_cleared.png'),
+      popupBg: 'images/push_box/level_cleared.png',
       popupNext: img('images/success/next_level.png'),
       popupHome: img('images/success/back_home.png'),
     };

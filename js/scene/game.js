@@ -31,9 +31,9 @@ export function buildGameSceneCorePaths() {
     gridBg: img(`images/game/grid/${selectedGrid[0]}.png`),
     smallSquare: img(`images/game/square/${selectedGrid[0]}.png`),
     stone: img(`images/game/stone/${selectedStone[0]}.png`),
-    // 撤回 & 重置按钮复用推箱子素材
-    withdrawBtn: img('images/push_box/withdraw.png'),
-    resetBtn: img('images/push_box/reset.png'),
+    // 撤回 & 重置按钮复用推箱子素材（本地资源，秒开）
+    withdrawBtn: 'images/push_box/withdraw.png',
+    resetBtn: 'images/push_box/reset.png',
   };
   // 按选中的皮肤加载方块三态图（block / hole / success）
   selectedBlock.forEach((skinId) => {
