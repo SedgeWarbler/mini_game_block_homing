@@ -29,9 +29,9 @@ const LOADING_IMAGE_PATHS = {
  * 流程：
  *   1. 启动后先并行下载加载场景自身的 3 张素材（背景 + 进度条框 + 填充），
  *      期间画面是纯色占位，避免黑屏。
- *   2. 自身素材就绪 → 渲染设计稿，并并行预下首页 + 游戏核心资源，
- *      按"已加载数 / 总数"推进进度条；同时后台下载延迟资源（不阻塞进度条）。
- *   3. 核心资源就绪且进度条平滑追上 100% → 触发 onComplete 回调切到首页。
+ *   2. 自身素材就绪 → 渲染设计稿，并并行预下首页 + 主要玩法图片，
+ *      只有成功加载的图片才计入进度；失败或超时会重试。
+ *   3. 必需资源全部成功且进度条平滑追上 100% → 触发 onComplete 回调切到首页。
  *
  * 进度条策略：
  *   - 显示进度从 0% 自然起步，前期有一个"假进度"匀速推进营造加载感。
@@ -44,7 +44,11 @@ export default class LoadingScene {
   displayProgress = 0;    // 渲染用的平滑进度，从 0 开始
   _fakeProgress = 0;      // 假进度：模拟加载感，匀速推进到 ~80%
   _completed = false;
-  _startTime = Date.now(); // 记录开始时间，用于超时兜底
+  _startTime = Date.now();
+  _requiredTotal = 0;
+  _requiredLoaded = 0;
+  _requiredRetryCount = 0;
+  _destroyed = false;
 
   constructor(onComplete) {
     this.onComplete = onComplete;
@@ -70,57 +74,77 @@ export default class LoadingScene {
    *   ─ 进度条追踪（决定能否进入首页 → 游戏） ─
    *     P0  本地素材：HOME_IMAGE_PATHS + buildPushBoxPaths()
    *         随小程序包发布，不走网络，几乎当帧 resolve，确保首页 / 推箱子永不黑屏。
-   *     P1  CDN 核心：buildGameSceneCorePaths()
-   *         游戏主棋盘 / 方块 / 石块 / 传送门 / UI —— **必须**全部下载完成才允许切到首页，
+   *     P1  CDN 核心：buildGameSceneCorePaths() + buildGameSceneDeferredPaths()
+   *         游戏主棋盘 / 方块 / 石块 / 传送门 / UI / 游戏内弹窗 / 玩法提示 —— **必须**全部下载成功才允许切到首页，
    *         避免玩家点"开始 / 继续"进入游戏后出现素材缺失。
    *
    *   ─ 火并遗忘式后台下载（不阻塞进度条，可在游戏中陆续到位） ─
-   *     P2  CDN 延迟：成功 / 失败 / 传送门提示 / 玩法提示弹窗 + 各皮肤场景图
-   *         即使玩家已进入游戏才加载完也无所谓 —— 弹窗触发时 loadImg 缓存通常已命中；
-   *         未命中也会回退到纯色占位，绝不黑屏。
+   *     P2  CDN 延迟：皮肤分类选择场景 + 各皮肤详情图
+   *         这些入口不是开局玩法必需，先在后台预热。
    *
    * 复用 loadImg 全局缓存：home/game/pushBox 场景之后调 loadResources 时直接命中。
    */
   _startPreloadAll() {
     // ===== P0 + P1：进度条追踪的核心资源 =====
     // 顺序：本地素材在前（瞬时 resolve、推动进度条快速起步），CDN 资源紧随其后。
-    const coreUrls = [
+    const requiredUrls = this._uniqueUrls([
       ...Object.values(HOME_IMAGE_PATHS),           // P0a 本地：首页（最优先，无网络等待）
       ...Object.values(buildPushBoxPaths()),        // P0b 本地：推箱子（同样本地，秒开）
       ...Object.values(buildGameSceneCorePaths()),  // P1  CDN：游戏核心（必须就位才能进游戏）
-    ];
-    const total = coreUrls.length;
-    if (total === 0) {
+      ...Object.values(buildGameSceneDeferredPaths()), // P1b 游戏内弹窗 / 玩法提示（进入首页前确保可用）
+    ]);
+    this._requiredTotal = requiredUrls.length;
+    if (this._requiredTotal === 0) {
       this.progress = 1;
       return;
     }
 
-    let done = 0;
-    for (const src of coreUrls) {
-      loadImg(src).then(() => {
-        done++;
-        this.progress = done / total;
-      });
+    for (const src of requiredUrls) {
+      this._loadRequiredImage(src);
     }
 
     // ===== P2：火并遗忘式后台下载 — 不影响进度条 =====
-    // 包含：游戏内通关 / 失败 / 提示弹窗素材；皮肤分类选择场景；各皮肤详情图。
-    // 这些在玩家点开对应入口前未必需要，缺失也由场景内部纯色 / 占位渲染兜底。
-    const deferredUrls = [
-      ...Object.values(buildGameSceneDeferredPaths()), // 游戏内弹窗素材
+    // 包含：皮肤分类选择场景、各皮肤详情图；这些不是开局玩法必需资源。
+    const deferredUrls = this._uniqueUrls([
       ...Object.values(SKIN_IMAGE_PATHS),               // 皮肤入口场景
       ...Object.values(buildBlockSkinPaths()),
       ...Object.values(buildStoneSkinPaths()),
       ...Object.values(buildPortalSkinPaths()),
       ...Object.values(buildGridSkinPaths()),
-    ];
+    ]).filter((src) => !requiredUrls.includes(src));
     for (const src of deferredUrls) {
       loadImg(src); // 不 .then，不计入 progress
     }
   }
 
+  _uniqueUrls(urls) {
+    return Array.from(new Set(urls.filter(Boolean)));
+  }
+
+  _loadRequiredImage(src) {
+    loadImg(src).then((image) => {
+      if (this._destroyed || this._completed) return;
+
+      if (image) {
+        this._requiredLoaded++;
+        this.progress = this._requiredLoaded / this._requiredTotal;
+        return;
+      }
+
+      // Required gameplay images must really be available before HomeScene.
+      // loadImg clears failed cache entries, so every retry creates a fresh Image.
+      this._requiredRetryCount++;
+      const delay = Math.min(3000, 500 + this._requiredRetryCount * 120);
+      setTimeout(() => {
+        if (!this._destroyed && !this._completed) {
+          this._loadRequiredImage(src);
+        }
+      }, delay);
+    });
+  }
+
   destroy() {
-    // 加载场景没有触摸交互，无需解绑
+    this._destroyed = true;
   }
 
   /** 加载场景始终需要全速渲染（进度条持续动画）*/
@@ -129,23 +153,17 @@ export default class LoadingScene {
   }
 
   update() {
-    // 假进度：从 0 匀速推进，前期快、中期渐慢，最终停在 ~80%，
-    // 留出 80%~100% 的区间跟随真实下载进度，减少"卡住"感。
-    if (this._fakeProgress < 0.8) {
-      // 前 60% 快推，60%~80% 减速，模拟大文件加载的自然节奏
-      const speed = this._fakeProgress < 0.6 ? 0.008 : 0.002;
-      this._fakeProgress = Math.min(0.8, this._fakeProgress + speed);
-    }
-
-    // 超时兜底：如果总加载时间超过 10 秒，直接把真实进度拉满，不再等待慢速/失败资源。
-    // （loadImg 本身有 6 秒单图超时，两层保护确保不会无限等待。）
+    // 视觉进度会随时间继续缓慢推进，但在全部必需图片成功前不会到 100%。
     const elapsed = Date.now() - this._startTime;
-    if (elapsed > 10000 && this.progress < 1) {
-      this.progress = 1;
+    const fakeCap = elapsed > 10000 ? 0.98 : (elapsed > 5000 ? 0.94 : 0.86);
+    if (this.progress < 1 && this._fakeProgress < fakeCap) {
+      const speed = this._fakeProgress < 0.6 ? 0.008 : (this._fakeProgress < 0.9 ? 0.002 : 0.0007);
+      this._fakeProgress = Math.min(fakeCap, this._fakeProgress + speed);
     }
 
-    // 目标进度 = 假进度 与 真实进度 取较大值
-    const target = Math.max(this._fakeProgress, this.progress);
+    const target = this.progress >= 1
+      ? 1
+      : Math.min(0.98, Math.max(this._fakeProgress, this.progress));
     if (this.displayProgress < target) {
       // 距离 target 越近滚动越慢，但保证最小步进，防止"卡进度"
       const delta = Math.max(0.003, (target - this.displayProgress) * 0.08);
@@ -157,7 +175,7 @@ export default class LoadingScene {
       this._completed = true;
       // 给"100%"留一点视觉停留时间再切首页
       setTimeout(() => {
-        if (this.onComplete) this.onComplete();
+        if (!this._destroyed && this.onComplete) this.onComplete();
       }, 250);
     }
   }
@@ -270,6 +288,23 @@ export default class LoadingScene {
       }
     }
 
+    if (fillW > barH * 1.2 && this.displayProgress < 1) {
+      const t = (Date.now() - this._startTime) / 1000;
+      const shineW = barW * 0.22;
+      const shineX = barX - shineW + ((t * 0.45) % 1) * (barW + shineW);
+      const grad = ctx.createLinearGradient(shineX, 0, shineX + shineW, 0);
+      grad.addColorStop(0, 'rgba(255,255,255,0)');
+      grad.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(barX, barY, fillW, barH);
+      ctx.clip();
+      ctx.fillStyle = grad;
+      ctx.fillRect(shineX, barY, shineW, barH);
+      ctx.restore();
+    }
+
     // ===== 3. 百分比文字 ── 暖金黄字 + 深棕粗描边 =====
     const percent = Math.floor(this.displayProgress * 100);
     const fs = Math.max(11, Math.floor(barH * 0.55));
@@ -279,7 +314,8 @@ export default class LoadingScene {
     ctx.font = `bold ${fs}px sans-serif`;
     const cx = barX + barW / 2;
     const cy = barY + barH / 2;
-    const text = `资源加载中 ${percent}%`;
+    const dots = '.'.repeat(Math.floor((Date.now() - this._startTime) / 350) % 4);
+    const text = `资源加载中 ${percent}%${dots}`;
     ctx.strokeStyle = '#7A3B12';
     ctx.lineWidth = Math.max(2, fs * 0.18);
     ctx.lineJoin = 'round';
