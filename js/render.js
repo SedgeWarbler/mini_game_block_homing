@@ -42,12 +42,21 @@ console.log(`[屏幕适配] ${SCREEN_WIDTH}×${SCREEN_HEIGHT} ratio=${ASPECT_RAT
  * `wx.createImage().src`。需要回退到本地资源时只把这里改成 '' 即可，调用方不动。
  *
  * 注意：微信小游戏从 CDN 加载图片，必须在「微信公众平台 → 开发管理 → 服务器域名」
- * 的 downloadFile 白名单里加上 `https://oss.wechat.axionterra.top`，否则会被拦截。
+ * 的 downloadFile 白名单里加上 `http://the37cgwv.hn-bkt.clouddn.com`，否则会被拦截。
  */
-export const IMAGE_BASE = 'https://oss.wechat.axionterra.top/block_homing/';
+export const IMAGE_BASE = 'http://the37cgwv.hn-bkt.clouddn.com/block_homing/';
 
 export function img(rel) {
-  return IMAGE_BASE + rel;
+  if (!rel) return rel;
+  if (/^https?:\/\//.test(rel)) return rel;
+  return IMAGE_BASE + rel.replace(/^\/+/, '');
+}
+
+function normalizeImageSrc(src) {
+  if (typeof src !== 'string') return src;
+  if (src.startsWith('images/loading/')) return src;
+  if (src.startsWith('images/')) return img(src);
+  return src;
 }
 
 /**
@@ -72,6 +81,7 @@ const _imgCache = new Map();
 const IMG_LOAD_TIMEOUT_MS = 6000;
 
 export function loadImg(src) {
+  src = normalizeImageSrc(src);
   const cached = _imgCache.get(src);
   if (cached) return cached.promise;
 
